@@ -1,7 +1,7 @@
 use rush::lexer::Lexer;
-use rush::parser::{Parser, AST};
+use rush::runner::Runner;
+use rush::parser::Parser;
 use std::io::{stdin, stdout, Write};
-use std::process::Command;
 
 fn main() {
     loop {
@@ -12,18 +12,12 @@ fn main() {
         stdin().read_line(&mut input).unwrap();
 
         let lexer = Lexer::new(&input);
-        let mut parser = Parser::new(lexer); 
-        let command = parser.gen();
-        println!("Command in main: {:?}", command);
 
-        if let AST::Basic(vec) = command {
-            println!("{:?}", vec);
-            Command::new(&vec[0])
-                .args(&vec[1..])
-                .spawn()
-                .unwrap()
-                .wait()
-                .unwrap();
-        }
+        let mut parser = Parser::new(lexer); 
+        let command = parser.get();
+        println!("[Main] Command: {:?}", command);
+
+        let runner = Runner::new(command);
+        runner.execute();
     }
 }

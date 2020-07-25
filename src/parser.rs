@@ -1,56 +1,71 @@
-use crate::lexer::{Lexer, Punct};
 use crate::lexer::Token::*;
+use crate::lexer::{Lexer, Op};
 use std::iter::Peekable;
 
 pub struct Parser<'a> {
     lexer: Peekable<Lexer<'a>>,
-    ast: Option<AST>,
 }
 
 #[derive(Debug)]
-pub enum AST {
-    Basic(Vec<String>),
+pub enum Cmd {
+    Simple(Vec<String>),
     Function(Function),
+    Pipeline(Vec<Cmd>),
     None,
 }
 
 #[derive(Debug)]
 pub struct Function {
     name: String,
-    body: Box<AST>,
+    body: Box<Cmd>,
 }
 
 impl Parser<'_> {
     pub fn new(lexer: Lexer) -> Parser {
-        Parser { lexer: lexer.peekable(), ast: None }
+        Parser {
+            lexer: lexer.peekable(),
+        }
     }
 
-    pub fn gen(&mut self) -> AST {
-        let mut answer = AST::None;
+    pub fn get(&mut self) -> Cmd {
+        let mut result = self.get_simple(None).unwrap();
         while let Some(token) = self.lexer.next() {
             match token {
-                Word(word) => {
-                    match self.lexer.peek() {
-                        Some(Punct(Punct::LParen)) => {
-                            self.lexer.next();
-                            self.lexer.next();
-                            self.lexer.next();
-                            answer = AST::Function(Function { name: word, body: Box::new(self.gen()) });
-                            self.lexer.next();
-                        },
-                        _ => {
-                            let mut result = vec!(word);
-                            while let Some(Word(word)) = self.lexer.next() {
-                                println!("In word: {:?}", word);
-                                result.push(word);
-                            }
-                            answer = AST::Basic(result);
-                        },
-                    }
-                }
+                Op(Op::Pipe) => result = self.get_pipe(result),
+                Word(word) => result = self.get_simple(Some(word)).unwrap(), 
                 _ => (),
             }
         }
-        answer
+        result
+    }
+
+    pub fn get_pipe(&mut self, cmd: Cmd) -> Cmd {
+        let mut result = vec!(cmd);
+        while let Some(simple) = self.get_simple(None) {
+            result.push(simple);
+            self.lexer.next();
+        }
+        if result.len() != 1 {
+            Cmd::Pipeline(result)
+        } else {
+            result.remove(0)
+        }
+    }
+
+    pub fn get_simple(&mut self, word: Option<String>) -> Option<Cmd> {
+        let mut result = Vec::new();
+        if let Some(start) = word {
+            result.push(start);
+        }
+        while let Some(Word(_)) = self.lexer.peek() {
+            if let Some(Word(word)) = self.lexer.next() {
+                result.push(word);
+            }
+        }
+        if result.len() != 0 {
+            Some(Cmd::Simple(result))
+        } else {
+            None
+        }
     }
 }
