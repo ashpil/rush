@@ -1,11 +1,12 @@
 use rush::lexer::Lexer;
-use rush::runner::Runner;
 use rush::parser::Parser;
+use rush::runner::Runner;
 use std::io::{stdin, stdout, Write};
 
+// TODO EVERYWHERE: Actual error handling
 fn main() {
     loop {
-        print!("> ");
+        print!("~> ");
         stdout().flush().unwrap();
 
         let mut input = String::new();
@@ -15,9 +16,14 @@ fn main() {
 
         let mut parser = Parser::new(lexer); 
         let command = parser.get();
-        println!("[Main] Command: {:?}", command);
+
+        // Some helpful debug printing
+        println!("\u{001b}[34m[Main]\u{001b}[0m Command: {:?}", command);
 
         let runner = Runner::new(command);
+
+        // Colors just make it easier to notice stuff immediately for debug
+        println!("\u{001b}[33mCommand output:\u{001b}[0m");
         runner.execute();
     }
 }

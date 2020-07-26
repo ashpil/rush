@@ -1,6 +1,7 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
+// Parent enum for tokens
 #[derive(Debug, PartialEq)]
 pub enum Token {
     Word(String),
@@ -9,12 +10,14 @@ pub enum Token {
     Punct(Punct),
 }
 
+// Operators
 #[derive(Debug, PartialEq)]
 pub enum Op {
     Pipe,
     Ampersand,
 }
 
+// Punctuation
 #[derive(Debug, PartialEq)]
 pub enum Punct {
     LParen,
@@ -45,33 +48,28 @@ impl Lexer<'_> {
     }
 
     fn skip_whitespace(&mut self) {
-        loop {
-            let next = self.peek_char();
-            if !(next.is_some() && next.unwrap().is_whitespace()) {
-                break;
-            }
+        let mut next = self.peek_char(); // Is making this mutable better than 
+        while next.is_some() && next.unwrap().is_whitespace() {
             self.next_char();
+            next = self.peek_char(); // doing `let next = self.peek_char()` (shadowing) here?
         }
     }
 
+    // Reads a string of consecutive characters, then figures out if they're numbers of letters
     fn read_phrase(&mut self, c: char) -> Option<Token> {
         let mut phrase = c.to_string();
         if is_name(&c) {
-            loop {
-                let next = self.peek_char();
-                if !(next.is_some() && is_name(next.unwrap())) {
-                    break;
-                }
+            let mut next = self.peek_char();
+            while next.is_some() && is_name(next.unwrap()) {
                 phrase.push(self.next_char().unwrap());
+                next = self.peek_char();
             }
             Some(Token::Word(phrase))
         } else if c.is_digit(10) {
-            loop {
-                let next = self.peek_char();
-                if !(next.is_some() && next.unwrap().is_digit(10)) {
-                    break;
-                }
+            let mut next = self.peek_char();
+            while next.is_some() && next.unwrap().is_digit(10) {
                 phrase.push(self.next_char().unwrap());
+                next = self.peek_char();
             }
             Some(Token::Integer(phrase.parse::<u32>().unwrap()))
         } else {
@@ -79,6 +77,7 @@ impl Lexer<'_> {
         }
     }
 
+    // Of course, I still haven't added everything I'll need to yet
     pub fn next_token(&mut self) -> Option<Token> {
         self.skip_whitespace();
         match self.next_char() {
@@ -94,21 +93,13 @@ impl Lexer<'_> {
             None => None,
         }
     }
-
-    pub fn get_tokens(&mut self) -> Vec<Token> {
-        let mut tokens = Vec::new();
-
-        while let Some(t) = self.next_token() {
-            tokens.push(t);
-        }
-        tokens
-    }
 }
 
 impl Iterator for Lexer<'_> {
     type Item = Token;
     fn next(&mut self) -> Option<Token> {
-        self.next_token()
+        let token = self.next_token();
+        token
     }
 }
 
@@ -116,6 +107,7 @@ fn is_name(c: &char) -> bool {
     c.is_alphabetic() || *c == '-' || *c == '_' || *c == '/'
 }
 
+// TODO: More tests
 #[cfg(test)]
 mod lexer_tests {
     use super::{Op, Token, Lexer};

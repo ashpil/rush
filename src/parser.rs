@@ -10,8 +10,8 @@ pub struct Parser<'a> {
 pub enum Cmd {
     Simple(Vec<String>),
     Function(Function),
-    Pipeline(Vec<Cmd>),
-    None,
+    Pipeline(Box<Cmd>, Box<Cmd>),
+    And(Vec<Cmd>),
 }
 
 #[derive(Debug)]
@@ -20,6 +20,7 @@ pub struct Function {
     body: Box<Cmd>,
 }
 
+// This used to be much more complicated but I refractored it to be much simpler
 impl Parser<'_> {
     pub fn new(lexer: Lexer) -> Parser {
         Parser {
@@ -28,44 +29,25 @@ impl Parser<'_> {
     }
 
     pub fn get(&mut self) -> Cmd {
-        let mut result = self.get_simple(None).unwrap();
-        while let Some(token) = self.lexer.next() {
-            match token {
-                Op(Op::Pipe) => result = self.get_pipe(result),
-                Word(word) => result = self.get_simple(Some(word)).unwrap(), 
-                _ => (),
-            }
-        }
-        result
+        self.get_pipe()
     }
 
-    pub fn get_pipe(&mut self, cmd: Cmd) -> Cmd {
-        let mut result = vec!(cmd);
-        while let Some(simple) = self.get_simple(None) {
-            result.push(simple);
+    pub fn get_pipe(&mut self) -> Cmd {
+        let mut node = self.get_simple();
+        while let Some(Op(Op::Pipe)) = self.lexer.peek() {
             self.lexer.next();
+            node = Cmd::Pipeline(Box::new(node), Box::new(self.get_simple()));
         }
-        if result.len() != 1 {
-            Cmd::Pipeline(result)
-        } else {
-            result.remove(0)
-        }
+        node
     }
 
-    pub fn get_simple(&mut self, word: Option<String>) -> Option<Cmd> {
+    pub fn get_simple(&mut self) -> Cmd {
         let mut result = Vec::new();
-        if let Some(start) = word {
-            result.push(start);
-        }
         while let Some(Word(_)) = self.lexer.peek() {
             if let Some(Word(word)) = self.lexer.next() {
                 result.push(word);
             }
         }
-        if result.len() != 0 {
-            Some(Cmd::Simple(result))
-        } else {
-            None
-        }
+        Cmd::Simple(result)
     }
 }
