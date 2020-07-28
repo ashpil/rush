@@ -2,35 +2,73 @@ use crate::parser::Cmd;
 use std::process::{Child, Command, Stdio};
 
 // This is useful to keep track of what each command does with its STDs.
-struct InOut {
+struct CmdMeta {
     stdout: Option<Stdio>,
     stdin: Option<Stdio>,
+    success: Option<bool>,
 }
 
-impl InOut {
-    fn inherit() -> InOut {
-        InOut {
+impl CmdMeta {
+    fn inherit() -> CmdMeta {
+        CmdMeta {
             stdout: None,
             stdin: None,
+            success: None,
         }
     }
 
-    fn pipe_out() -> InOut {
-        InOut {
+    fn pipe_out() -> CmdMeta {
+        CmdMeta {
             stdout: Some(Stdio::piped()),
             stdin: None,
+            success: None,
         }
     }
 
-    fn new_in(self, stdin: Stdio) -> InOut {
-        InOut {
+    fn from(mut child: Child) -> CmdMeta {
+        let success = Some(child.wait().unwrap().success());
+        let stdout = if child.stdout.is_some() {
+            Some(Stdio::from(child.stdout.unwrap()))
+        } else {
+            None
+        };
+        let stdin = if child.stdin.is_some() {
+            Some(Stdio::from(child.stdin.unwrap()))
+        } else {
+            None
+        };
+        CmdMeta {
+            stdout,
+            stdin,
+            success,
+        }
+    }
+
+    fn new_in(self, stdin: Stdio) -> CmdMeta {
+        CmdMeta {
             stdout: self.stdout,
             stdin: Some(stdin),
+            success: None,
+        }
+    }
+
+    fn set_success(self, success: bool) -> CmdMeta {
+        CmdMeta {
+            stdout: self.stdout,
+            stdin: self.stdin,
+            success: Some(success),
+        }
+    }
+    fn success(&self) -> bool {
+        if let Some(success) = self.success {
+            success
+        } else {
+            false
         }
     }
 }
 
-// Not sure if I need this to actually be a struct, this might just be OOP creeping into my code.
+// Not sure if I need this to actually be a struct, this might just be OOP bs creeping into my code.
 pub struct Runner {
     ast: Cmd,
 }
@@ -41,14 +79,41 @@ impl Runner {
     }
 
     pub fn execute(self) {
-        Self::visit(self.ast, InOut::inherit()).wait().unwrap();
+        Self::visit(self.ast, CmdMeta::inherit());
     }
 
-    fn visit(node: Cmd, stdio: InOut) -> Child {
+    fn visit(node: Cmd, stdio: CmdMeta) -> CmdMeta {
         match node {
-            Cmd::Simple(cmd) => Self::visit_simple(cmd, stdio),
+            Cmd::Simple(vec) => Self::visit_simple(vec, stdio),
             Cmd::Pipeline(cmd0, cmd1) => Self::visit_pipe(*cmd0, *cmd1, stdio),
-            _ => Self::visit_simple(vec!["ls".to_string()], stdio), // This is a workaround because I'm lazy, this should return a result
+            Cmd::And(cmd0, cmd1) => Self::visit_and(*cmd0, *cmd1, stdio),
+            Cmd::Or(cmd0, cmd1) => Self::visit_or(*cmd0, *cmd1, stdio),
+            Cmd::Not(cmd) => Self::visit_not(*cmd, stdio),
+            _ => unimplemented!(),
+        }
+    }
+
+    fn visit_not(cmd: Cmd, stdio: CmdMeta) -> CmdMeta {
+        let result = Self::visit(cmd, stdio);
+        let success = result.success();
+        result.set_success(!success)
+    }
+
+    fn visit_or(left: Cmd, right: Cmd, stdio: CmdMeta) -> CmdMeta {
+        let left = Self::visit(left, CmdMeta::inherit());
+        if !left.success() {
+            Self::visit(right, stdio)
+        } else {
+            left
+        }
+    }
+
+    fn visit_and(left: Cmd, right: Cmd, stdio: CmdMeta) -> CmdMeta {
+        let left = Self::visit(left, CmdMeta::inherit());
+        if left.success() {
+            Self::visit(right, stdio)
+        } else {
+            left
         }
     }
 
@@ -57,14 +122,14 @@ impl Runner {
 
     // Due to the stdio arg, we know whether this is the uppermost command in
     // in the tree, and thus can tell whether we should pipe its output or not.
-    fn visit_pipe(left: Cmd, right: Cmd, stdio: InOut) -> Child {
-        let left = Self::visit(left, InOut::pipe_out());
+    fn visit_pipe(left: Cmd, right: Cmd, stdio: CmdMeta) -> CmdMeta { 
+        let left = Self::visit(left, CmdMeta::pipe_out());
         let stdin = Stdio::from(left.stdout.unwrap());
         Self::visit(right, stdio.new_in(stdin))
     }
 
     // We add the relevant stdios if they are not None.
-    fn visit_simple(cmd: Vec<String>, stdio: InOut) -> Child {
+    fn visit_simple(cmd: Vec<String>, stdio: CmdMeta) -> CmdMeta {
         let mut child = Command::new(&cmd[0]);
         if let Some(stdout) = stdio.stdout {
             child.stdout(stdout);
@@ -72,6 +137,6 @@ impl Runner {
         if let Some(stdin) = stdio.stdin {
             child.stdin(stdin);
         }
-        child.args(&cmd[1..]).spawn().unwrap()
+        CmdMeta::from(child.args(&cmd[1..]).spawn().unwrap())
     }
 }

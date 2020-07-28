@@ -15,6 +15,9 @@ pub enum Token {
 pub enum Op {
     Pipe,
     Ampersand,
+    Bang,
+    Or,
+    And,
 }
 
 // Punctuation
@@ -48,7 +51,7 @@ impl Lexer<'_> {
     }
 
     fn skip_whitespace(&mut self) {
-        let mut next = self.peek_char(); // Is making this mutable better than 
+        let mut next = self.peek_char(); // Is making this mutable better than
         while next.is_some() && next.unwrap().is_whitespace() {
             self.next_char();
             next = self.peek_char(); // doing `let next = self.peek_char()` (shadowing) here?
@@ -82,8 +85,25 @@ impl Lexer<'_> {
         self.skip_whitespace();
         match self.next_char() {
             Some(c) => match c {
-                '|' => Some(Token::Op(Op::Pipe)),
-                '&' => Some(Token::Op(Op::Ampersand)),
+                // Check whether it's two or one `|` and `&` here, as I think this is
+                // the easiest place to fit that logic in
+                '|' => {
+                    if let Some('|') = self.peek_char() {
+                        self.next_char();
+                        Some(Token::Op(Op::Or))
+                    } else {
+                        Some(Token::Op(Op::Pipe))
+                    }
+                }
+                '&' => {
+                    if let Some('&') = self.peek_char() {
+                        self.next_char();
+                        Some(Token::Op(Op::And))
+                    } else {
+                        Some(Token::Op(Op::Ampersand))
+                    }
+                }
+                '!' => Some(Token::Op(Op::Bang)),
                 '(' => Some(Token::Punct(Punct::LParen)),
                 ')' => Some(Token::Punct(Punct::RParen)),
                 '{' => Some(Token::Punct(Punct::LBracket)),
@@ -99,6 +119,7 @@ impl Iterator for Lexer<'_> {
     type Item = Token;
     fn next(&mut self) -> Option<Token> {
         let token = self.next_token();
+        println!("Next token: {:?}", token);
         token
     }
 }
@@ -110,10 +131,10 @@ fn is_name(c: &char) -> bool {
 // TODO: More tests
 #[cfg(test)]
 mod lexer_tests {
-    use super::{Op, Token, Lexer};
+    use super::{Lexer, Op, Token};
 
     #[test]
-    fn test_tokenizer() {
+    fn test_lexer() {
         let mut lexer = Lexer::new("ls | grep cargo");
         let expected = [
             Token::Word("ls".to_string()),
