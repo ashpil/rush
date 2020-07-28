@@ -61,22 +61,17 @@ impl Lexer<'_> {
     // Reads a string of consecutive characters, then figures out if they're numbers of letters
     fn read_phrase(&mut self, c: char) -> Option<Token> {
         let mut phrase = c.to_string();
-        if is_name(&c) {
-            let mut next = self.peek_char();
-            while next.is_some() && is_name(next.unwrap()) {
+        while let Some(c) = self.peek_char() {
+            if is_forbidden(c) || c.is_whitespace() {
+                break;
+            } else {
                 phrase.push(self.next_char().unwrap());
-                next = self.peek_char();
             }
-            Some(Token::Word(phrase))
-        } else if c.is_digit(10) {
-            let mut next = self.peek_char();
-            while next.is_some() && next.unwrap().is_digit(10) {
-                phrase.push(self.next_char().unwrap());
-                next = self.peek_char();
-            }
-            Some(Token::Integer(phrase.parse::<u32>().unwrap()))
+        }
+        if let Ok(num) = phrase.parse::<u32>() {
+            Some(Token::Integer(num))
         } else {
-            None
+            Some(Token::Word(phrase))
         }
     }
 
@@ -118,14 +113,12 @@ impl Lexer<'_> {
 impl Iterator for Lexer<'_> {
     type Item = Token;
     fn next(&mut self) -> Option<Token> {
-        let token = self.next_token();
-        println!("Next token: {:?}", token);
-        token
+         self.next_token()
     }
 }
 
-fn is_name(c: &char) -> bool {
-    c.is_alphabetic() || *c == '-' || *c == '_' || *c == '/'
+fn is_forbidden(c: &char) -> bool {
+    matches!(*c, '&' | '!' | '|')
 }
 
 // TODO: More tests
@@ -135,9 +128,10 @@ mod lexer_tests {
 
     #[test]
     fn test_lexer() {
-        let mut lexer = Lexer::new("ls | grep cargo");
+        let mut lexer = Lexer::new("exa -1 | grep cargo");
         let expected = [
-            Token::Word("ls".to_string()),
+            Token::Word("exa".to_string()),
+            Token::Word("-1".to_string()),
             Token::Op(Op::Pipe),
             Token::Word("grep".to_string()),
             Token::Word("cargo".to_string()),
