@@ -8,5 +8,5 @@ I know that the name is overused, but it's too good to pass up.
 - [X] Exit status logic `&&` `||` `!`
 - [ ] Shell builtins `cd` `exit`
 - [ ] Variable assignment
-- [ ] POSIX constructs `'for` `while` `case` etc
+- [ ] POSIX constructs `for` `while` `case` etc
 - [ ] Expand this to-do list
