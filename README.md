@@ -7,6 +7,7 @@ I know that the name is overused, but it's too good to pass up.
 - [X] Redirection/pipes! `|`
 - [X] Exit status logic `&&` `||` `!`
 - [ ] Shell builtins `cd` `exit`
+- [ ] Environmental variables
 - [ ] Variable assignment
 - [ ] POSIX constructs `for` `while` `case` etc
 - [ ] Expand this to-do list
