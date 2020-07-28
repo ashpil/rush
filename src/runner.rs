@@ -1,7 +1,11 @@
 use crate::parser::Cmd;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, Stdio, exit};
+use std::path::Path;
+use std::env;
 
-// This is useful to keep track of what each command does with its STDs.
+// This is useful to keep track of what each command does with its STDs
+// and what the status is.
+#[derive(Debug)]
 struct CmdMeta {
     stdout: Option<Stdio>,
     stdin: Option<Stdio>,
@@ -82,7 +86,7 @@ impl Runner {
         Self::visit(self.ast, CmdMeta::inherit());
     }
 
-    fn visit(node: Cmd, stdio: CmdMeta) -> CmdMeta {
+    fn visit(node: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
         match node {
             Cmd::Simple(vec) => Self::visit_simple(vec, stdio),
             Cmd::Pipeline(cmd0, cmd1) => Self::visit_pipe(*cmd0, *cmd1, stdio),
@@ -93,27 +97,27 @@ impl Runner {
         }
     }
 
-    fn visit_not(cmd: Cmd, stdio: CmdMeta) -> CmdMeta {
-        let result = Self::visit(cmd, stdio);
+    fn visit_not(cmd: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
+        let result = Self::visit(cmd, stdio)?;
         let success = result.success();
-        result.set_success(!success)
+        Some(result.set_success(!success))
     }
 
-    fn visit_or(left: Cmd, right: Cmd, stdio: CmdMeta) -> CmdMeta {
-        let left = Self::visit(left, CmdMeta::inherit());
+    fn visit_or(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
+        let left = Self::visit(left, CmdMeta::inherit())?;
         if !left.success() {
             Self::visit(right, stdio)
         } else {
-            left
+            Some(left)
         }
     }
 
-    fn visit_and(left: Cmd, right: Cmd, stdio: CmdMeta) -> CmdMeta {
-        let left = Self::visit(left, CmdMeta::inherit());
+    fn visit_and(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
+        let left = Self::visit(left, CmdMeta::inherit())?;
         if left.success() {
             Self::visit(right, stdio)
         } else {
-            left
+            Some(left)
         }
     }
 
@@ -122,21 +126,41 @@ impl Runner {
 
     // Due to the stdio arg, we know whether this is the uppermost command in
     // in the tree, and thus can tell whether we should pipe its output or not.
-    fn visit_pipe(left: Cmd, right: Cmd, stdio: CmdMeta) -> CmdMeta { 
-        let left = Self::visit(left, CmdMeta::pipe_out());
+    fn visit_pipe(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<CmdMeta> { 
+        let left = Self::visit(left, CmdMeta::pipe_out())?;
         let stdin = Stdio::from(left.stdout.unwrap());
         Self::visit(right, stdio.new_in(stdin))
     }
 
     // We add the relevant stdios if they are not None.
-    fn visit_simple(cmd: Vec<String>, stdio: CmdMeta) -> CmdMeta {
-        let mut child = Command::new(&cmd[0]);
-        if let Some(stdout) = stdio.stdout {
-            child.stdout(stdout);
+    fn visit_simple(cmd: Vec<String>, stdio: CmdMeta) -> Option<CmdMeta> {
+        match &cmd[0][..] {
+            "exit" => exit(0),
+            "cd" => {
+                let root = Path::new(cmd.get(1).map_or("/", |x| x));
+                if let Err(e) = env::set_current_dir(&root) {
+                    eprintln!("Rush error: {}", e);
+                }
+                Some(stdio.set_success(true))
+            },
+            command => {
+                let mut child = Command::new(command);
+                if let Some(stdout) = stdio.stdout {
+                    child.stdout(stdout);
+                }
+                if let Some(stdin) = stdio.stdin {
+                    child.stdin(stdin);
+                }
+                // No idea why this doesn't error when the vector has only 1 item, but
+                // I guess it's neat.
+                match child.args(&cmd[1..]).spawn() {
+                    Ok(child) => Some(CmdMeta::from(child)),
+                    Err(e) => {
+                        eprintln!("Rush error: {}", e);
+                        None
+                    },
+                }
+            },
         }
-        if let Some(stdin) = stdio.stdin {
-            child.stdin(stdin);
-        }
-        CmdMeta::from(child.args(&cmd[1..]).spawn().unwrap())
     }
 }

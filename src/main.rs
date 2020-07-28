@@ -15,15 +15,20 @@ fn main() {
         let lexer = Lexer::new(&input);
 
         let mut parser = Parser::new(lexer); 
-        let command = parser.get();
+        match parser.get() {
+            Ok(command) => {
+                // Some helpful debug printing
+                println!("\u{001b}[34m[Main]\u{001b}[0m Command: {:?}", command);
 
-        // Some helpful debug printing
-        println!("\u{001b}[34m[Main]\u{001b}[0m Command: {:?}", command);
+                let runner = Runner::new(command);
 
-        let runner = Runner::new(command);
-
-        // Colors just make it easier to notice stuff immediately for debug
-        println!("\u{001b}[33mCommand output:\u{001b}[0m");
-        runner.execute();
+                // Colors just make it easier to notice stuff immediately for debug
+                println!("\u{001b}[33mCommand output:\u{001b}[0m");
+                runner.execute();
+            }, 
+            Err(e) => {
+                eprintln!("{}", e);
+            },
+        }
     }
 }

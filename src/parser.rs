@@ -30,35 +30,35 @@ impl Parser<'_> {
         }
     }
 
-    pub fn get(&mut self) -> Cmd {
+    pub fn get(&mut self) -> Result<Cmd, String> {
         self.get_and()
     }
 
-    pub fn get_and(&mut self) -> Cmd {
-        let mut node = self.get_pipe();
+    pub fn get_and(&mut self) -> Result<Cmd, String> {
+        let mut node = self.get_pipe()?;
         while let Some(Op(Op::And)) | Some(Op(Op::Or)) = self.lexer.peek() {
             if let Some(Op(Op::And)) = self.lexer.next() {
-                node = Cmd::And(Box::new(node), Box::new(self.get_pipe()));
+                node = Cmd::And(Box::new(node), Box::new(self.get_pipe()?));
             } else {
-                node = Cmd::Or(Box::new(node), Box::new(self.get_pipe()));
+                node = Cmd::Or(Box::new(node), Box::new(self.get_pipe()?));
             }
         }
-        node
+        Ok(node)
     }
 
-    pub fn get_pipe(&mut self) -> Cmd {
-        let mut node = self.get_simple();
+    pub fn get_pipe(&mut self) -> Result<Cmd, String> {
+        let mut node = self.get_simple()?;
         while let Some(Op(Op::Pipe)) = self.lexer.peek() {
             self.lexer.next();
-            node = Cmd::Pipeline(Box::new(node), Box::new(self.get_simple()));
+            node = Cmd::Pipeline(Box::new(node), Box::new(self.get_simple()?));
         }
-        node
+        Ok(node)
     }
 
-    pub fn get_simple(&mut self) -> Cmd {
+    pub fn get_simple(&mut self) -> Result<Cmd, &str> {
         if let Some(Op(Op::Bang)) = self.lexer.peek() {
             self.lexer.next();
-            Cmd::Not(Box::new(self.get_simple()))
+            Ok(Cmd::Not(Box::new(self.get_simple()?)))
         } else {
             let mut result = Vec::new();
             while let Some(Word(_)) = self.lexer.peek() {
@@ -66,7 +66,11 @@ impl Parser<'_> {
                     result.push(word);
                 }
             }
-            Cmd::Simple(result)
+            if result.len() == 0 {
+                Err("Rush error: expected command but found none")
+            } else {
+                Ok(Cmd::Simple(result))
+            }
         }
     }
 }

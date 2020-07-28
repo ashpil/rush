@@ -4,10 +4,14 @@ Rush is designed to run scripts, and run them fast. Think of it as a Rust [dash]
 I know that the name is overused, but it's too good to pass up.
 
 ### // TODO: 
-- [X] Redirection/pipes! `|`
-- [X] Exit status logic `&&` `||` `!`
-- [ ] Shell builtins `cd` `exit`
+- [X] Simple command execution `ls -l`
+- [X] Redirection `exa -1 | grep cargo`
+- [X] Exit status logic ` ! false && ls || date`
+- [ ] Redirection `date > time.txt`
+- [ ] Async execution `&`
+- [X] Shell builtins `cd` `exit`
 - [ ] Environmental variables
-- [ ] Variable assignment
-- [ ] POSIX constructs `for` `while` `case` etc
+- [ ] Variables
+- [ ] Quotes
+- [ ] Control flow `if` `for` `while` `case` etc
 - [ ] Expand this to-do list
