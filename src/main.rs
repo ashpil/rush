@@ -3,7 +3,6 @@ use rush::parser::Parser;
 use rush::runner::Runner;
 use std::io::{stdin, stdout, Write};
 
-// TODO EVERYWHERE: Actual error handling
 fn main() {
     loop {
         print!("~> ");

@@ -1,7 +1,8 @@
-use crate::lexer::Token::{self, *};
+use crate::lexer::Token::*;
 use crate::lexer::{Lexer, Op};
 use std::fs::File;
 use std::iter::Peekable;
+use std::os::unix::io::FromRawFd;
 use std::process::Stdio;
 
 pub struct Parser<'a> {
@@ -27,6 +28,12 @@ pub struct Simple {
     pub stderr: Option<Stdio>,
 }
 
+#[derive(Debug)]
+pub enum Fd {
+    File(String),
+    RawFd(i32),
+}
+
 impl PartialEq for Simple {
     fn eq(&self, other: &Self) -> bool {
         self.cmd == other.cmd && self.args == other.args
@@ -44,31 +51,60 @@ impl Simple {
         }
     }
 
-    fn set_stdin(&mut self, filename: String) {
-        if let Ok(file) = File::open(&filename) {
-            self.stdin = Some(Stdio::from(file));
-        } else {
-            eprintln!("rush: {}: no such file or directory", filename);
+    fn set_stdin(&mut self, fd: Fd) -> Result<(), String> {
+        println!("Stdin set to: {:?}", fd);
+        match fd {
+            Fd::File(filename) => {
+                if let Ok(file) = File::open(&filename) {
+                    self.stdin = Some(Stdio::from(file));
+                    Ok(())
+                } else {
+                    Err(format!("rush: {}: no such file or directory", filename))
+                }
+            }
+            Fd::RawFd(i) => {
+                self.stdin = Some(unsafe { Stdio::from_raw_fd(i) });
+                Ok(())
+            },
         }
-        println!("Stdin set to: {}", filename);
     }
 
-    fn set_stdout(&mut self, filename: String) {
-        if let Ok(file) = File::open(&filename) {
-            self.stdout = Some(Stdio::from(file));
-        } else {
-            self.stdout = Some(Stdio::from(File::create(&filename).unwrap()));
+    fn set_stdout(&mut self, fd: Fd) -> Result<(), String> {
+        println!("Stdout set to: {:?}", fd);
+        match fd {
+            Fd::File(filename) => {
+                if let Ok(file) = File::open(&filename) {
+                    self.stdout = Some(Stdio::from(file));
+                    Ok(())
+                } else {
+                    self.stdout = Some(Stdio::from(File::create(&filename).unwrap()));
+                    Ok(())
+                }
+            }
+            Fd::RawFd(i) => {
+                self.stdout = Some(unsafe { Stdio::from_raw_fd(i) });
+                Ok(())
+            },
         }
-        println!("Stdout set to: {}", filename);
     }
 
-    fn set_stderr(&mut self, filename: String) {
-        if let Ok(file) = File::open(&filename) {
-            self.stderr = Some(Stdio::from(file));
-        } else {
-            self.stderr = Some(Stdio::from(File::create(&filename).unwrap()));
+    fn set_stderr(&mut self, fd: Fd) -> Result<(), String> {
+        println!("Stderr set to: {:?}", fd);
+        match fd {
+            Fd::File(filename) => {
+                if let Ok(file) = File::open(&filename) {
+                    self.stderr = Some(Stdio::from(file));
+                    Ok(())
+                } else {
+                    self.stderr = Some(Stdio::from(File::create(&filename).unwrap()));
+                    Ok(())
+                }
+            }
+            Fd::RawFd(i) => {
+                self.stderr = Some(unsafe { Stdio::from_raw_fd(i) });
+                Ok(())
+            },
         }
-        println!("Stderr set to: {}", filename);
     }
 }
 
@@ -133,14 +169,14 @@ impl Parser<'_> {
             } else {
                 let mut simple = Simple::new(result.remove(0), result);
 
-                if let Some(s) = stdin {
-                    simple.set_stdin(s);
+                if let Some(fd) = stdin {
+                    simple.set_stdin(fd)?;
                 }
-                if let Some(s) = stdout {
-                    simple.set_stdout(s);
+                if let Some(fd) = stdout {
+                    simple.set_stdout(fd)?;
                 }
-                if let Some(s) = stderr {
-                    simple.set_stderr(s);
+                if let Some(fd) = stderr {
+                    simple.set_stderr(fd)?;
                 }
 
                 Ok(Cmd::Simple(simple))
@@ -150,27 +186,27 @@ impl Parser<'_> {
 
     fn update_stds(
         &mut self,
-        mut stdin: Option<String>,
-        mut stdout: Option<String>,
-        mut stderr: Option<String>,
-    ) -> Result<(Option<String>, Option<String>, Option<String>), &str> {
+        mut stdin: Option<Fd>,
+        mut stdout: Option<Fd>,
+        mut stderr: Option<Fd>,
+    ) -> Result<(Option<Fd>, Option<Fd>, Option<Fd>), String> {
         loop {
             match self.lexer.peek() {
                 Some(Op(Op::Less)) => {
                     self.lexer.next();
-                    stdin = Some(token_to_string(self.lexer.next())?);
+                    stdin = Some(self.token_to_fd()?);
                 }
                 Some(Op(Op::More)) => {
                     self.lexer.next();
-                    stdout = Some(token_to_string(self.lexer.next())?);
+                    stdout = Some(self.token_to_fd()?);
                 }
                 Some(Integer(_)) => {
                     if let Some(Integer(int)) = self.lexer.next() {
                         self.lexer.next();
                         match int {
-                            0 => stdin = Some(token_to_string(self.lexer.next())?),
-                            1 => stdout = Some(token_to_string(self.lexer.next())?),
-                            2 => stderr = Some(token_to_string(self.lexer.next())?),
+                            0 => stdin = Some(self.token_to_fd()?),
+                            1 => stdout = Some(self.token_to_fd()?),
+                            2 => stderr = Some(self.token_to_fd()?),
                             _ => unimplemented!(),
                         }
                     }
@@ -179,18 +215,25 @@ impl Parser<'_> {
             }
         }
     }
-}
 
-fn token_to_string(next: Option<Token>) -> Result<String, &'static str> {
-    let error = "Rush error: expected redirection location but found none";
-    if let Some(token) = next {
-        match token {
-            Word(s) => Ok(s),
-            Integer(i) => Ok(i.to_string()),
-            _ => Err(error),
+    fn token_to_fd(&mut self) -> Result<Fd, String> {
+        let error = String::from("Rush error: expected redirection location but found none");
+        if let Some(token) = self.lexer.next() {
+            match token {
+                Op(Op::Ampersand) => {
+                    if let Some(Integer(i)) = self.lexer.next() {
+                        Ok(Fd::RawFd(i as i32))
+                    } else {
+                        Err(error)
+                    }
+                }
+                Word(s) => Ok(Fd::File(s)),
+                Integer(i) => Ok(Fd::File(i.to_string())),
+                _ => Err(error),
+            }
+        } else {
+            Err(error)
         }
-    } else {
-        Err(error)
     }
 }
 
