@@ -1,5 +1,5 @@
 # rush - the really uninteractive shell
-Rush is designed to run scripts, and run them fast. Think of it as a Rust [dash](https://en.wikipedia.org/wiki/Almquist_shell#dash).
+Rush is designed to run POSIX scripts, and run them fast. Think of it as a Rust [dash](https://en.wikipedia.org/wiki/Almquist_shell#dash).
 
 I know that the name is overused, but it's too good to pass up.
 
