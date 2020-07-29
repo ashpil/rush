@@ -48,8 +48,9 @@ impl Simple {
         if let Ok(file) = File::open(&filename) {
             self.stdin = Some(Stdio::from(file));
         } else {
-            self.stdin = Some(Stdio::from(File::create(&filename).unwrap()));
+            eprintln!("rush: {}: no such file or directory", filename);
         }
+        println!("Stdin set to: {}", filename);
     }
 
     fn set_stdout(&mut self, filename: String) {
@@ -58,6 +59,7 @@ impl Simple {
         } else {
             self.stdout = Some(Stdio::from(File::create(&filename).unwrap()));
         }
+        println!("Stdout set to: {}", filename);
     }
 
     fn set_stderr(&mut self, filename: String) {
@@ -66,6 +68,7 @@ impl Simple {
         } else {
             self.stderr = Some(Stdio::from(File::create(&filename).unwrap()));
         }
+        println!("Stderr set to: {}", filename);
     }
 }
 
@@ -108,67 +111,82 @@ impl Parser<'_> {
         Ok(node)
     }
 
-    pub fn get_simple(&mut self) -> Result<Cmd, &str> {
+    pub fn get_simple(&mut self) -> Result<Cmd, String> {
         if let Some(Op(Op::Bang)) = self.lexer.peek() {
             self.lexer.next();
             Ok(Cmd::Not(Box::new(self.get_simple()?)))
         } else {
             let mut result = Vec::new();
+
+            let (stdin, stdout, stderr) = self.update_stds(None, None, None)?;
+
             while let Some(Word(_)) = self.lexer.peek() {
                 if let Some(Word(word)) = self.lexer.next() {
                     result.push(word);
                 }
             }
 
+            let (stdin, stdout, stderr) = self.update_stds(stdin, stdout, stderr)?;
+
             if result.len() == 0 {
-                Err("Rush error: expected command but found none")
+                Err(String::from("rush: expected command but found none"))
             } else {
                 let mut simple = Simple::new(result.remove(0), result);
 
-                loop {
-                    match self.lexer.peek() {
-                        Some(Op(Op::Less)) => {
-                            self.lexer.next();
-                            token_to_io(self.lexer.next(), |x| simple.set_stdin(x))?;
-                        }
-                        Some(Op(Op::More)) => {
-                            self.lexer.next();
-                            token_to_io(self.lexer.next(), |x| simple.set_stdout(x))?;
-                        }
-                        Some(Integer(_)) => {
-                            if let Some(Integer(int)) = self.lexer.next() {
-                                self.lexer.next();
-                                match int {
-                                    0 => token_to_io(self.lexer.next(), |x| simple.set_stdin(x))?,
-                                    1 => token_to_io(self.lexer.next(), |x| simple.set_stdout(x))?,
-                                    2 => token_to_io(self.lexer.next(), |x| simple.set_stderr(x))?,
-                                    _ => unimplemented!(),
-                                }
-                            }
-                        }
-                        _ => break,
-                    }
+                if let Some(s) = stdin {
+                    simple.set_stdin(s);
                 }
+                if let Some(s) = stdout {
+                    simple.set_stdout(s);
+                }
+                if let Some(s) = stderr {
+                    simple.set_stderr(s);
+                }
+
                 Ok(Cmd::Simple(simple))
             }
         }
     }
+
+    fn update_stds(
+        &mut self,
+        mut stdin: Option<String>,
+        mut stdout: Option<String>,
+        mut stderr: Option<String>,
+    ) -> Result<(Option<String>, Option<String>, Option<String>), &str> {
+        loop {
+            match self.lexer.peek() {
+                Some(Op(Op::Less)) => {
+                    self.lexer.next();
+                    stdin = Some(token_to_string(self.lexer.next())?);
+                }
+                Some(Op(Op::More)) => {
+                    self.lexer.next();
+                    stdout = Some(token_to_string(self.lexer.next())?);
+                }
+                Some(Integer(_)) => {
+                    if let Some(Integer(int)) = self.lexer.next() {
+                        self.lexer.next();
+                        match int {
+                            0 => stdin = Some(token_to_string(self.lexer.next())?),
+                            1 => stdout = Some(token_to_string(self.lexer.next())?),
+                            2 => stderr = Some(token_to_string(self.lexer.next())?),
+                            _ => unimplemented!(),
+                        }
+                    }
+                }
+                _ => break Ok((stdin, stdout, stderr)),
+            }
+        }
+    }
 }
-fn token_to_io<F>(next: Option<Token>, mut io: F) -> Result<(), &'static str>
-where
-    F: FnMut(String),
-{
+
+fn token_to_string(next: Option<Token>) -> Result<String, &'static str> {
     let error = "Rush error: expected redirection location but found none";
     if let Some(token) = next {
         match token {
-            Word(s) => {
-                io(s);
-                Ok(())
-            }
-            Integer(i) => {
-                io(i.to_string());
-                Ok(())
-            }
+            Word(s) => Ok(s),
+            Integer(i) => Ok(i.to_string()),
             _ => Err(error),
         }
     } else {
