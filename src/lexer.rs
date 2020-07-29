@@ -18,6 +18,8 @@ pub enum Op {
     Bang,
     Or,
     And,
+    Less,
+    More,
 }
 
 // Punctuation
@@ -98,6 +100,8 @@ impl Lexer<'_> {
                         Some(Token::Op(Op::Ampersand))
                     }
                 }
+                '>' => Some(Token::Op(Op::More)),
+                '<' => Some(Token::Op(Op::Less)),
                 '!' => Some(Token::Op(Op::Bang)),
                 '(' => Some(Token::Punct(Punct::LParen)),
                 ')' => Some(Token::Punct(Punct::RParen)),
@@ -113,12 +117,14 @@ impl Lexer<'_> {
 impl Iterator for Lexer<'_> {
     type Item = Token;
     fn next(&mut self) -> Option<Token> {
-         self.next_token()
+        let token = self.next_token();
+        println!("Token: {:?}", token);
+        token
     }
 }
 
 fn is_forbidden(c: &char) -> bool {
-    matches!(*c, '&' | '!' | '|')
+    matches!(*c, '&' | '!' | '|' | '<' | '>')
 }
 
 // TODO: More tests

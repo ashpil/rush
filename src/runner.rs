@@ -1,4 +1,4 @@
-use crate::parser::Cmd;
+use crate::parser::{Cmd, Simple};
 use std::process::{Child, Command, Stdio, exit};
 use std::path::Path;
 use std::env;
@@ -88,7 +88,7 @@ impl Runner {
 
     fn visit(node: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
         match node {
-            Cmd::Simple(vec) => Self::visit_simple(vec, stdio),
+            Cmd::Simple(simple) => Self::visit_simple(simple, stdio),
             Cmd::Pipeline(cmd0, cmd1) => Self::visit_pipe(*cmd0, *cmd1, stdio),
             Cmd::And(cmd0, cmd1) => Self::visit_and(*cmd0, *cmd1, stdio),
             Cmd::Or(cmd0, cmd1) => Self::visit_or(*cmd0, *cmd1, stdio),
@@ -133,11 +133,11 @@ impl Runner {
     }
 
     // We add the relevant stdios if they are not None.
-    fn visit_simple(cmd: Vec<String>, stdio: CmdMeta) -> Option<CmdMeta> {
-        match &cmd[0][..] {
+    fn visit_simple(simple: Simple, stdio: CmdMeta) -> Option<CmdMeta> {
+        match &simple.cmd[..] {
             "exit" => exit(0),
             "cd" => {
-                let root = Path::new(cmd.get(1).map_or("/", |x| x));
+                let root = Path::new(simple.args.get(0).map_or("/", |x| x));
                 if let Err(e) = env::set_current_dir(&root) {
                     eprintln!("Rush error: {}", e);
                 }
@@ -151,9 +151,7 @@ impl Runner {
                 if let Some(stdin) = stdio.stdin {
                     child.stdin(stdin);
                 }
-                // No idea why this doesn't error when the vector has only 1 item, but
-                // I guess it's neat.
-                match child.args(&cmd[1..]).spawn() {
+                match child.args(simple.args).spawn() {
                     Ok(child) => Some(CmdMeta::from(child)),
                     Err(e) => {
                         eprintln!("Rush error: {}", e);
