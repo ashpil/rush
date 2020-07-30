@@ -5,9 +5,9 @@ I know that the name is overused, but it's too good to pass up.
 
 ### // TODO: 
 - [X] Simple command execution `ls -l`
-- [X] Redirection `exa -1 | grep cargo`
+- [X] Pipes `exa -1 | grep cargo`
 - [X] Exit status logic ` ! false && ls || date`
-- [ ] Redirection `date > time.txt`
+- [ ] Redirection `date > time.txt` `ls error 2>&1`
 - [ ] Async execution `&`
 - [X] Shell builtins `cd` `exit`
 - [ ] Environmental variables
