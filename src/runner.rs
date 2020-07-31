@@ -2,16 +2,14 @@ use crate::parser::{Cmd, Fd, Simple};
 use os_pipe::{pipe, PipeReader, PipeWriter};
 use std::env;
 use std::path::Path;
-use std::process::{exit, Child, Command};
+use std::process::{exit, Command};
 
 
 // This is useful to keep track of what each command does with its STDs
-// and what the status is.
 #[derive(Debug)]
 struct CmdMeta {
     stdin: Option<PipeReader>,
     stdout: Option<PipeWriter>,
-    success: Option<bool>,
 }
 
 impl CmdMeta {
@@ -19,7 +17,6 @@ impl CmdMeta {
         CmdMeta {
             stdin: None,
             stdout: None,
-            success: None,
         }
     }
 
@@ -27,7 +24,6 @@ impl CmdMeta {
         CmdMeta {
             stdin: None,
             stdout: Some(writer),
-            success: None,
         }
     }
 
@@ -35,40 +31,6 @@ impl CmdMeta {
         CmdMeta {
             stdin: Some(reader),
             stdout: self.stdout,
-            success: self.success,
-        }
-    }
-
-    fn from(mut child: Child) -> CmdMeta {
-        let success = Some(child.wait().unwrap().success());
-        CmdMeta {
-            stdin: None,
-            stdout: None,
-            success,
-        }
-    }
-
-    fn set_success(self, success: bool) -> CmdMeta {
-        CmdMeta {
-            stdin: self.stdin,
-            stdout: self.stdout,
-            success: Some(success),
-        }
-    }
-
-    fn success(&self) -> bool {
-        if let Some(success) = self.success {
-            success
-        } else {
-            false
-        }
-    }
-
-    fn successful() -> CmdMeta {
-        CmdMeta {
-            stdin: None,
-            stdout: None,
-            success: Some(true),
         }
     }
 }
@@ -77,7 +39,7 @@ pub fn execute(ast: Cmd) {
     visit(ast, CmdMeta::inherit());
 }
 
-fn visit(node: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
+fn visit(node: Cmd, stdio: CmdMeta) -> Option<bool> {
     match node {
         Cmd::Simple(simple) => visit_simple(simple, stdio),
         Cmd::Pipeline(cmd0, cmd1) => visit_pipe(*cmd0, *cmd1, stdio),
@@ -87,42 +49,38 @@ fn visit(node: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
     }
 }
 
-fn visit_not(cmd: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
+fn visit_not(cmd: Cmd, stdio: CmdMeta) -> Option<bool> {
     let result = visit(cmd, stdio)?;
-    let success = result.success();
-    Some(result.set_success(!success))
+    Some(!result)
 }
 
-fn visit_or(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
+fn visit_or(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<bool> {
     let left = visit(left, CmdMeta::inherit())?;
-    if !left.success() {
+    if !left {
         visit(right, stdio)
     } else {
         Some(left)
     }
 }
 
-fn visit_and(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
+fn visit_and(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<bool> {
     let left = visit(left, CmdMeta::inherit())?;
-    if left.success() {
+    if left {
         visit(right, stdio)
     } else {
         Some(left)
     }
 }
 
-// This tells the left command to keep track of its stdout for later,
-// and then takes that and puts it into the stdin of the right command.
-
-// Due to the stdio arg, we know whether this is the uppermost command in
-// in the tree, and thus can tell whether we should pipe its output or not.
-fn visit_pipe(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
+// We create a pipe, pass the writing end to the left, and modify the stdio
+// to have its stdin be the reading end.
+fn visit_pipe(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<bool> {
     let (reader, writer) = pipe().unwrap();
     visit(left, CmdMeta::pipe_out(writer))?;
     visit(right, stdio.new_in(reader))
 }
 
-fn visit_simple(mut simple: Simple, stdio: CmdMeta) -> Option<CmdMeta> {
+fn visit_simple(mut simple: Simple, stdio: CmdMeta) -> Option<bool> {
     reconcile_io(&mut simple, stdio);
     match &simple.cmd[..] {
         "exit" => exit(0),
@@ -131,7 +89,7 @@ fn visit_simple(mut simple: Simple, stdio: CmdMeta) -> Option<CmdMeta> {
             if let Err(e) = env::set_current_dir(&root) {
                 eprintln!("rush: {}", e);
             }
-            Some(CmdMeta::successful())
+            Some(true)
         }
         command => {
             let mut cmd = Command::new(command);
@@ -141,8 +99,8 @@ fn visit_simple(mut simple: Simple, stdio: CmdMeta) -> Option<CmdMeta> {
             cmd.stdout((simple.stdout).borrow_mut().get_stdout()?);
             cmd.stderr((simple.stderr).borrow_mut().get_stderr()?);
 
-            match cmd.spawn() {
-                Ok(child) => Some(CmdMeta::from(child)),
+            match cmd.status() {
+                Ok(child) => Some(child.success()),
                 Err(e) => {
                     eprintln!("rush: {}", e);
                     None
@@ -152,6 +110,7 @@ fn visit_simple(mut simple: Simple, stdio: CmdMeta) -> Option<CmdMeta> {
     }
 }
 
+// Takes the stdio and if stdio has priority, replaces stdout/stdin with it.
 fn reconcile_io(simple: &mut Simple, stdio: CmdMeta) {
     if let Some(stdout) = stdio.stdout {
         if *simple.stdout.borrow() == Fd::Stdout {
