@@ -1,5 +1,6 @@
 use std::iter::Peekable;
-use std::str::Chars;
+use std::vec::IntoIter;
+use std::io::{stdout, stdin, Write};
 
 // Parent enum for tokens
 #[derive(Debug, PartialEq)]
@@ -32,16 +33,21 @@ pub enum Punct {
     Semicolon,
 }
 
+// I'm not convinced this is the best way to represent a lexer
 #[derive(Debug)]
-pub struct Lexer<'a> {
-    text: Peekable<Chars<'a>>,
+pub struct Lexer {
+    text: Peekable<IntoIter<char>>,
 }
 
-impl Lexer<'_> {
-    pub fn new(text: &str) -> Lexer {
+impl Lexer {
+    pub fn new(text: String) -> Lexer {
         Lexer {
-            text: text.chars().peekable(),
+            text: text.chars().collect::<Vec<_>>().into_iter().peekable(),
         }
+    }
+
+    fn update_text(&mut self, s: String) {
+        self.text = s.chars().collect::<Vec<_>>().into_iter().peekable();
     }
 
     fn peek_char(&mut self) -> Option<&char> {
@@ -107,6 +113,24 @@ impl Lexer<'_> {
                 ')' => Some(Token::Punct(Punct::RParen)),
                 '{' => Some(Token::Punct(Punct::LBracket)),
                 '}' => Some(Token::Punct(Punct::RBracket)),
+                '"' => {
+                    let mut phrase = String::new();
+                    loop {
+                        match self.next_char() {
+                            Some('"') => break,
+                            Some(c) => phrase.push(c),
+                            None => {
+                                print!("> ");
+                                stdout().flush().unwrap();
+
+                                let mut input = String::new();
+                                stdin().read_line(&mut input).unwrap();
+                                self.update_text(input);
+                            }
+                        }
+                    }
+                    Some(Token::Word(phrase))
+                },
                 _ => self.read_phrase(c),
             },
             None => None,
@@ -114,10 +138,12 @@ impl Lexer<'_> {
     }
 }
 
-impl Iterator for Lexer<'_> {
+impl Iterator for Lexer {
     type Item = Token;
     fn next(&mut self) -> Option<Token> {
-        self.next_token()
+        let token = self.next_token();
+        println!("Token: {:?}", token);
+        token
     }
 }
 

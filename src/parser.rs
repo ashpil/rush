@@ -155,11 +155,11 @@ impl Fd {
 }
 
 // The parser struct. Keeps track of current location in a peekable iter of tokens
-pub struct Parser<'a> {
-    lexer: Peekable<Lexer<'a>>,
+pub struct Parser {
+    lexer: Peekable<Lexer>,
 }
 
-impl Parser<'_> {
+impl Parser {
     pub fn new(lexer: Lexer) -> Parser {
         Parser {
             lexer: lexer.peekable(),
