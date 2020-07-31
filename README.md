@@ -9,10 +9,10 @@ I know that the name is overused, but it's too good to pass up.
 - [X] Exit status logic `! false && ls || date`
 - [ ] Redirection
     - [X] File descriptor to another `ls error 2>&1`
-    - [ ] Raw, non-io file descriptors `4>&7`
     - [X] To/from file `date > time.txt` `< Cargo.toml wc`
     - [X] Appending `>>`
     - [ ] Here-docs `<<`
+    - [ ] Raw, non-io file descriptors `4>&7`
 - [ ] Async execution `&`
 - [ ] Shell builtins
    - [X] `cd`
