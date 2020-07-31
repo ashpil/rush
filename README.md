@@ -14,11 +14,11 @@ I know that the name is overused, but it's too good to pass up.
     - [ ] Appending `>>`
     - [ ] Here-docs `<<`
 - [ ] Async execution `&`
-- [ ] Shell builtins `cd` `exit`
-    [X] `cd`
-    [X] `exit`
-    [ ] `exec`
-    [ ] etc
+- [ ] Shell builtins
+   - [X] `cd`
+   - [X] `exit`
+   - [ ] `exec`
+   - [ ] etc
 - [ ] Environmental variables
 - [ ] Variables
 - [ ] Quotes
