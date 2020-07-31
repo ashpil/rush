@@ -84,7 +84,6 @@ fn visit(node: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
         Cmd::And(cmd0, cmd1) => visit_and(*cmd0, *cmd1, stdio),
         Cmd::Or(cmd0, cmd1) => visit_or(*cmd0, *cmd1, stdio),
         Cmd::Not(cmd) => visit_not(*cmd, stdio),
-        _ => unimplemented!(),
     }
 }
 

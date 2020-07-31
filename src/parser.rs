@@ -2,7 +2,7 @@ use crate::lexer::Token::*;
 use crate::lexer::{Lexer, Op};
 use os_pipe::{dup_stderr, dup_stdin, dup_stdout, PipeReader, PipeWriter};
 use std::cell::RefCell;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::iter::Peekable;
 use std::process::Stdio;
 use std::rc::Rc;
@@ -66,6 +66,7 @@ pub enum Fd {
     PipeOut(PipeWriter),
     PipeIn(PipeReader),
     FileName(String),
+    FileNameAppend(String),
     RawFile(File),
 }
 
@@ -84,8 +85,9 @@ impl Fd {
             Fd::Inherit => "Inherit",
             Fd::PipeOut(_) => "PipeOut",
             Fd::PipeIn(_) => "PipeIn",
-            Fd::RawFile(_) => "RawFile",
-            Fd::FileName(_) => "FileName", // Not completely accurate, but I think fine for now
+            Fd::FileName(_) => "FileName", 
+            Fd::FileNameAppend(_) => "FileNameAppend", 
+            Fd::RawFile(_) => "RawFile", // Not completely accurate, but I think fine for now
         }
     }
 
@@ -93,14 +95,17 @@ impl Fd {
     pub fn get_stdin(&mut self) -> Option<Stdio> {
         match self {
             Fd::FileName(name) => {
-                if let Ok(file) = File::open(&name) {
-                    *self = Fd::RawFile(file.try_clone().unwrap());
-                    Some(Stdio::from(file))
-                } else {
-                    eprintln!("rush: {}: no such file or directory", name);
-                    None
+                match File::open(&name) {
+                    Ok(file) => {
+                        *self = Fd::RawFile(file.try_clone().unwrap());
+                        Some(Stdio::from(file))
+                    },
+                    Err(e) => {
+                        eprintln!("rush: {}: {}", name, e);
+                        None
+                    },
                 }
-            }
+            },
             _ => self.get_stdout(),
         }
     }
@@ -118,14 +123,29 @@ impl Fd {
             Fd::PipeIn(reader) => Some(Stdio::from(reader.try_clone().unwrap())),
             Fd::RawFile(file) => Some(Stdio::from(file.try_clone().unwrap())),
             Fd::FileName(name) => {
-                if let Ok(file) = File::create(&name) {
-                    *self = Fd::RawFile(file.try_clone().unwrap());
-                    Some(Stdio::from(file))
-                } else {
-                    eprintln!("rush: unable to create file: {}", name);
-                    None
+                match File::create(&name) {
+                    Ok(file) => {
+                        *self = Fd::RawFile(file.try_clone().unwrap());
+                        Some(Stdio::from(file))
+                    },
+                    Err(e) => {
+                        eprintln!("rush: {}: {}", name, e);
+                        None
+                    },
                 }
-            }
+            },
+            Fd::FileNameAppend(name) => {
+                match OpenOptions::new().append(true).create(true).open(&name) {
+                    Ok(file) => {
+                        *self = Fd::RawFile(file.try_clone().unwrap());
+                        Some(Stdio::from(file))
+                    },
+                    Err(e) => {
+                        eprintln!("rush: {}: {}", name, e);
+                        None
+                    },
+                }
+            },
         }
     }
 
@@ -225,7 +245,7 @@ impl Parser<'_> {
     }
 
     fn token_to_fd(&mut self, io: &Io) -> Result<Rc<RefCell<Fd>>, String> {
-        let error = String::from("Rush error: expected redirection location but found none");
+        let error = String::from("rush: expected redirection location but found none");
         if let Some(token) = self.lexer.next() {
             match token {
                 Op(Op::Ampersand) => {
@@ -239,7 +259,14 @@ impl Parser<'_> {
                     } else {
                         Err(error)
                     }
-                }
+                },
+                Op(Op::More) => {
+                    if let Some(Word(s)) = self.lexer.next() {
+                        Ok(Rc::new(RefCell::new(Fd::FileNameAppend(s))))
+                    } else {
+                        Err(error)
+                    }
+                },
                 Word(s) => Ok(Rc::new(RefCell::new(Fd::FileName(s)))),
                 Integer(i) => Ok(Rc::new(RefCell::new(Fd::FileName(i.to_string())))),
                 _ => Err(error),

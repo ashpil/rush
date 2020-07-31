@@ -11,7 +11,7 @@ I know that the name is overused, but it's too good to pass up.
     - [X] File descriptor to another `ls error 2>&1`
     - [ ] Raw, non-io file descriptors `4>&7`
     - [X] To/from file `date > time.txt` `< Cargo.toml wc`
-    - [ ] Appending `>>`
+    - [X] Appending `>>`
     - [ ] Here-docs `<<`
 - [ ] Async execution `&`
 - [ ] Shell builtins
