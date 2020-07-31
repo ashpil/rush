@@ -1,68 +1,61 @@
-use crate::parser::{Cmd, Simple};
-use std::process::{Child, Command, Stdio, exit};
-use std::path::Path;
+use crate::parser::{Cmd, Fd, Simple};
+use os_pipe::{pipe, PipeReader, PipeWriter};
 use std::env;
+use std::path::Path;
+use std::process::{exit, Child, Command};
+
 
 // This is useful to keep track of what each command does with its STDs
 // and what the status is.
 #[derive(Debug)]
 struct CmdMeta {
-    stdout: Option<Stdio>,
-    stdin: Option<Stdio>,
+    stdin: Option<PipeReader>,
+    stdout: Option<PipeWriter>,
     success: Option<bool>,
 }
 
 impl CmdMeta {
     fn inherit() -> CmdMeta {
         CmdMeta {
-            stdout: None,
             stdin: None,
+            stdout: None,
             success: None,
         }
     }
 
-    fn pipe_out() -> CmdMeta {
+    fn pipe_out(writer: PipeWriter) -> CmdMeta {
         CmdMeta {
-            stdout: Some(Stdio::piped()),
             stdin: None,
+            stdout: Some(writer),
             success: None,
+        }
+    }
+
+    fn new_in(self, reader: PipeReader) -> CmdMeta {
+        CmdMeta {
+            stdin: Some(reader),
+            stdout: self.stdout,
+            success: self.success,
         }
     }
 
     fn from(mut child: Child) -> CmdMeta {
         let success = Some(child.wait().unwrap().success());
-        let stdout = if child.stdout.is_some() {
-            Some(Stdio::from(child.stdout.unwrap()))
-        } else {
-            None
-        };
-        let stdin = if child.stdin.is_some() {
-            Some(Stdio::from(child.stdin.unwrap()))
-        } else {
-            None
-        };
         CmdMeta {
-            stdout,
-            stdin,
+            stdin: None,
+            stdout: None,
             success,
-        }
-    }
-
-    fn new_in(self, stdin: Stdio) -> CmdMeta {
-        CmdMeta {
-            stdout: self.stdout,
-            stdin: Some(stdin),
-            success: None,
         }
     }
 
     fn set_success(self, success: bool) -> CmdMeta {
         CmdMeta {
-            stdout: self.stdout,
             stdin: self.stdin,
+            stdout: self.stdout,
             success: Some(success),
         }
     }
+
     fn success(&self) -> bool {
         if let Some(success) = self.success {
             success
@@ -70,95 +63,107 @@ impl CmdMeta {
             false
         }
     }
-}
 
-// Not sure if I need this to actually be a struct, this might just be OOP bs creeping into my code.
-pub struct Runner {
-    ast: Cmd,
-}
-
-impl Runner {
-    pub fn new(ast: Cmd) -> Runner {
-        Runner { ast }
-    }
-
-    pub fn execute(self) {
-        Self::visit(self.ast, CmdMeta::inherit());
-    }
-
-    fn visit(node: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
-        match node {
-            Cmd::Simple(simple) => Self::visit_simple(simple, stdio),
-            Cmd::Pipeline(cmd0, cmd1) => Self::visit_pipe(*cmd0, *cmd1, stdio),
-            Cmd::And(cmd0, cmd1) => Self::visit_and(*cmd0, *cmd1, stdio),
-            Cmd::Or(cmd0, cmd1) => Self::visit_or(*cmd0, *cmd1, stdio),
-            Cmd::Not(cmd) => Self::visit_not(*cmd, stdio),
-            _ => unimplemented!(),
-        }
-    }
-
-    fn visit_not(cmd: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
-        let result = Self::visit(cmd, stdio)?;
-        let success = result.success();
-        Some(result.set_success(!success))
-    }
-
-    fn visit_or(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
-        let left = Self::visit(left, CmdMeta::inherit())?;
-        if !left.success() {
-            Self::visit(right, stdio)
-        } else {
-            Some(left)
-        }
-    }
-
-    fn visit_and(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
-        let left = Self::visit(left, CmdMeta::inherit())?;
-        if left.success() {
-            Self::visit(right, stdio)
-        } else {
-            Some(left)
-        }
-    }
-
-    // This tells the left command to keep track of its stdout for later,
-    // and then takes that and puts it into the stdin of the right command.
-
-    // Due to the stdio arg, we know whether this is the uppermost command in
-    // in the tree, and thus can tell whether we should pipe its output or not.
-    fn visit_pipe(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<CmdMeta> { 
-        let left = Self::visit(left, CmdMeta::pipe_out())?;
-        let stdin = Stdio::from(left.stdout.unwrap());
-        Self::visit(right, stdio.new_in(stdin))
-    }
-
-    // We add the relevant stdios if they are not None.
-    fn visit_simple(simple: Simple, stdio: CmdMeta) -> Option<CmdMeta> {
-        match &simple.cmd[..] {
-            "exit" => exit(0),
-            "cd" => {
-                let root = Path::new(simple.args.get(0).map_or("/", |x| x));
-                if let Err(e) = env::set_current_dir(&root) {
-                    eprintln!("Rush error: {}", e);
-                }
-                Some(stdio.set_success(true))
-            },
-            command => {
-                let mut child = Command::new(command);
-                if let Some(stdout) = stdio.stdout {
-                    child.stdout(stdout);
-                }
-                if let Some(stdin) = stdio.stdin {
-                    child.stdin(stdin);
-                }
-                match child.args(simple.args).spawn() {
-                    Ok(child) => Some(CmdMeta::from(child)),
-                    Err(e) => {
-                        eprintln!("Rush error: {}", e);
-                        None
-                    },
-                }
-            },
+    fn successful() -> CmdMeta {
+        CmdMeta {
+            stdin: None,
+            stdout: None,
+            success: Some(true),
         }
     }
 }
+
+pub fn execute(ast: Cmd) {
+    visit(ast, CmdMeta::inherit());
+}
+
+fn visit(node: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
+    match node {
+        Cmd::Simple(simple) => visit_simple(simple, stdio),
+        Cmd::Pipeline(cmd0, cmd1) => visit_pipe(*cmd0, *cmd1, stdio),
+        Cmd::And(cmd0, cmd1) => visit_and(*cmd0, *cmd1, stdio),
+        Cmd::Or(cmd0, cmd1) => visit_or(*cmd0, *cmd1, stdio),
+        Cmd::Not(cmd) => visit_not(*cmd, stdio),
+        _ => unimplemented!(),
+    }
+}
+
+fn visit_not(cmd: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
+    let result = visit(cmd, stdio)?;
+    let success = result.success();
+    Some(result.set_success(!success))
+}
+
+fn visit_or(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
+    let left = visit(left, CmdMeta::inherit())?;
+    if !left.success() {
+        visit(right, stdio)
+    } else {
+        Some(left)
+    }
+}
+
+fn visit_and(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
+    let left = visit(left, CmdMeta::inherit())?;
+    if left.success() {
+        visit(right, stdio)
+    } else {
+        Some(left)
+    }
+}
+
+// This tells the left command to keep track of its stdout for later,
+// and then takes that and puts it into the stdin of the right command.
+
+// Due to the stdio arg, we know whether this is the uppermost command in
+// in the tree, and thus can tell whether we should pipe its output or not.
+fn visit_pipe(left: Cmd, right: Cmd, stdio: CmdMeta) -> Option<CmdMeta> {
+    let (reader, writer) = pipe().unwrap();
+    visit(left, CmdMeta::pipe_out(writer))?;
+    visit(right, stdio.new_in(reader))
+}
+
+fn visit_simple(mut simple: Simple, stdio: CmdMeta) -> Option<CmdMeta> {
+    reconcile_io(&mut simple, stdio);
+    match &simple.cmd[..] {
+        "exit" => exit(0),
+        "cd" => {
+            let root = Path::new(simple.args.get(0).map_or("/", |x| x));
+            if let Err(e) = env::set_current_dir(&root) {
+                eprintln!("rush: {}", e);
+            }
+            Some(CmdMeta::successful())
+        }
+        command => {
+            let mut cmd = Command::new(command);
+            cmd.args(&simple.args);
+
+            cmd.stdin((simple.stdin).borrow_mut().get_stdin()?);
+            cmd.stdout((simple.stdout).borrow_mut().get_stdout()?);
+            cmd.stderr((simple.stderr).borrow_mut().get_stderr()?);
+
+            match cmd.spawn() {
+                Ok(child) => Some(CmdMeta::from(child)),
+                Err(e) => {
+                    eprintln!("rush: {}", e);
+                    None
+                }
+            }
+        }
+    }
+}
+
+fn reconcile_io(simple: &mut Simple, stdio: CmdMeta) {
+    if let Some(stdout) = stdio.stdout {
+        if *simple.stdout.borrow() == Fd::Stdout {
+            *simple.stdout.borrow_mut() = Fd::PipeOut(stdout);
+        }
+    }
+    if let Some(stdin) = stdio.stdin {
+        if *simple.stdin.borrow() == Fd::Stdin {
+            *simple.stdin.borrow_mut() = Fd::PipeIn(stdin);
+        }
+    }
+}
+
+// How do I test this module?

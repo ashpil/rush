@@ -1,6 +1,6 @@
 use rush::lexer::Lexer;
 use rush::parser::Parser;
-use rush::runner::Runner;
+use rush::runner::execute;
 use std::io::{stdin, stdout, Write};
 
 fn main() {
@@ -19,11 +19,7 @@ fn main() {
                 // Some helpful debug printing
                 println!("\u{001b}[34m[Main]\u{001b}[0m Command: {:?}", command);
 
-                let runner = Runner::new(command);
-
-                // Colors just make it easier to notice stuff immediately for debug
-                println!("\u{001b}[33mCommand output:\u{001b}[0m");
-                runner.execute();
+                execute(command);
             }, 
             Err(e) => {
                 eprintln!("{}", e);

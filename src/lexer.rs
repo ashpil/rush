@@ -117,9 +117,7 @@ impl Lexer<'_> {
 impl Iterator for Lexer<'_> {
     type Item = Token;
     fn next(&mut self) -> Option<Token> {
-        let token = self.next_token();
-        println!("Token: {:?}", token);
-        token
+        self.next_token()
     }
 }
 

@@ -4,12 +4,21 @@ Rush is designed to run POSIX scripts, and run them fast. Think of it as a Rust 
 I know that the name is overused, but it's too good to pass up.
 
 ### // TODO: 
-- [X] Simple command execution `ls -l`
-- [X] Pipes `exa -1 | grep cargo`
-- [X] Exit status logic ` ! false && ls || date`
-- [ ] Redirection `date > time.txt` `ls error 2>&1`
+- [X] Simple command execution `ls -ltr`
+- [X] Pipes `exa | grep cargo`
+- [X] Exit status logic `! false && ls || date`
+- [ ] Redirection
+    - [X] File descriptor to another `ls error 2>&1`
+    - [ ] Raw, non-io file descriptors `4>&7`
+    - [X] To/from file `date > time.txt` `< Cargo.toml wc`
+    - [ ] Appending `>>`
+    - [ ] Here-docs `<<`
 - [ ] Async execution `&`
-- [X] Shell builtins `cd` `exit`
+- [ ] Shell builtins `cd` `exit`
+    [X] `cd`
+    [X] `exit`
+    [ ] `exec`
+    [ ] etc
 - [ ] Environmental variables
 - [ ] Variables
 - [ ] Quotes
