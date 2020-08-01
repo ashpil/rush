@@ -15,10 +15,14 @@ I know that the name is overused, but it's too good to pass up.
     - [ ] Raw, non-io file descriptors `4>&7`
 - [ ] Async execution `&`
 - [ ] Shell builtins
-   - [X] `cd`
-   - [X] `exit`
-   - [ ] `exec`
-   - [ ] etc
+   - [ ] Normal built-ins
+      - [ ] `alias` `unalias`
+      - [X] `cd`
+      - [ ] etc
+   - [ ] Special built-ins
+      - [X] `exit`
+      - [ ] `exec`
+      - [ ] etc
 - [ ] Environmental variables
 - [ ] Variables
 - [ ] Quotes
