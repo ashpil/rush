@@ -22,5 +22,7 @@ I know that the name is overused, but it's too good to pass up.
 - [ ] Environmental variables
 - [ ] Variables
 - [ ] Quotes
+   - [X] Quote recongintion
+   - [ ] There's probably more, right?
 - [ ] Control flow `if` `for` `while` `case` etc
 - [ ] Expand this to-do list
