@@ -1,6 +1,6 @@
+use std::io::{stdin, stdout, Write};
 use std::iter::Peekable;
 use std::vec::IntoIter;
-use std::io::{stdout, stdin, Write};
 
 // Parent enum for tokens
 #[derive(Debug, PartialEq)]
@@ -114,6 +114,8 @@ impl Lexer {
                 '{' => Some(Token::Punct(Punct::LBracket)),
                 '}' => Some(Token::Punct(Punct::RBracket)),
                 '"' => {
+                    let stdin = stdin();
+                    let mut stdout = stdout();
                     let mut phrase = String::new();
                     loop {
                         match self.next_char() {
@@ -121,16 +123,16 @@ impl Lexer {
                             Some(c) => phrase.push(c),
                             None => {
                                 print!("> ");
-                                stdout().flush().unwrap();
+                                stdout.flush().unwrap();
 
                                 let mut input = String::new();
-                                stdin().read_line(&mut input).unwrap();
+                                stdin.read_line(&mut input).unwrap();
                                 self.update_text(input);
                             }
                         }
                     }
                     Some(Token::Word(phrase))
-                },
+                }
                 _ => self.read_phrase(c),
             },
             None => None,
@@ -141,9 +143,7 @@ impl Lexer {
 impl Iterator for Lexer {
     type Item = Token;
     fn next(&mut self) -> Option<Token> {
-        let token = self.next_token();
-        println!("Token: {:?}", token);
-        token
+        self.next_token()
     }
 }
 

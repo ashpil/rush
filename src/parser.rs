@@ -1,11 +1,12 @@
 use crate::lexer::Token::*;
 use crate::lexer::{Lexer, Op};
-use os_pipe::{dup_stderr, dup_stdin, dup_stdout, PipeReader, PipeWriter};
+use os_pipe::{dup_stderr, dup_stdin, dup_stdout, PipeReader, PipeWriter, pipe};
 use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
 use std::iter::Peekable;
 use std::process::Stdio;
 use std::rc::Rc;
+use std::io::{stdout, stdin, Write};
 
 #[derive(Debug, PartialEq)]
 pub enum Cmd {
@@ -263,6 +264,34 @@ impl Parser {
                 Op(Op::More) => {
                     if let Some(Word(s)) = self.lexer.next() {
                         Ok(Rc::new(RefCell::new(Fd::FileNameAppend(s))))
+                    } else {
+                        Err(error)
+                    }
+                },
+                Op(Op::Less) => {
+                    if let Some(Word(mut s)) = self.lexer.next() {
+                        s = format!("{}\n", s);
+                        let (reader, mut writer) = pipe().unwrap();
+                        let stdin = stdin();
+                        let mut stdout = stdout();
+                        let mut input = String::new();
+
+                        // Not completely satisfied with this implementation here, 
+                        // as I think I could be writing directly from stdin to the writer.
+                        // The problem is that I need to check whether the last line
+                        // is equal to right after the `<<` before writing to the buffer
+                        loop {
+                            print!("> ");
+                            stdout.flush().unwrap();
+                            input.clear();
+                            stdin.read_line(&mut input).unwrap();
+                            if input == s {
+                                break
+                            } else {
+                                writer.write_all(input.as_bytes()).unwrap();
+                            }
+                        }
+                        Ok(Rc::new(RefCell::new(Fd::PipeIn(reader))))
                     } else {
                         Err(error)
                     }

@@ -20,7 +20,7 @@ fn main() {
         match parser.get() {
             Ok(command) => {
                 #[cfg(debug_assertions)] // Only include when not built with `--release` flag
-                println!("\u{001b}[34m[Main]\u{001b}[0m Command: {:?}", command);
+                println!("\u{001b}[34m{:#?}\u{001b}[0m", command);
 
                 execute(command);
             }, 
