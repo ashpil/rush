@@ -209,7 +209,7 @@ impl Parser {
 
             let io = self.update_stds(io)?;
 
-            if result.len() == 0 {
+            if result.is_empty() {
                 Err(String::from("rush: expected command but found none"))
             } else {
                 Ok(Cmd::Simple(Simple::new(result.remove(0), result, io)))

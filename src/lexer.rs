@@ -40,13 +40,13 @@ pub struct Lexer {
 }
 
 impl Lexer {
-    pub fn new(text: String) -> Lexer {
+    pub fn new(text: &str) -> Lexer {
         Lexer {
             text: text.chars().collect::<Vec<_>>().into_iter().peekable(),
         }
     }
 
-    fn update_text(&mut self, s: String) {
+    fn update_text(&mut self, s: &str) {
         self.text = s.chars().collect::<Vec<_>>().into_iter().peekable();
     }
 
@@ -70,7 +70,7 @@ impl Lexer {
     fn read_phrase(&mut self, c: char) -> Option<Token> {
         let mut phrase = c.to_string();
         while let Some(c) = self.peek_char() {
-            if is_forbidden(c) || c.is_whitespace() {
+            if is_forbidden(*c) || c.is_whitespace() {
                 break;
             } else {
                 phrase.push(self.next_char().unwrap());
@@ -117,6 +117,7 @@ impl Lexer {
                     let stdin = stdin();
                     let mut stdout = stdout();
                     let mut phrase = String::new();
+                    let mut input = String::new();
                     loop {
                         match self.next_char() {
                             Some('"') => break,
@@ -125,9 +126,9 @@ impl Lexer {
                                 print!("> ");
                                 stdout.flush().unwrap();
 
-                                let mut input = String::new();
+                                input.clear();
                                 stdin.read_line(&mut input).unwrap();
-                                self.update_text(input);
+                                self.update_text(&input);
                             }
                         }
                     }
@@ -147,8 +148,8 @@ impl Iterator for Lexer {
     }
 }
 
-fn is_forbidden(c: &char) -> bool {
-    matches!(*c, '&' | '!' | '|' | '<' | '>')
+fn is_forbidden(c: char) -> bool {
+    matches!(c, '&' | '!' | '|' | '<' | '>')
 }
 
 // TODO: More tests

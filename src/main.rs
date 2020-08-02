@@ -6,15 +6,16 @@ use std::io::{stdin, stdout, Write};
 fn main() {
     let mut stdout = stdout();
     let stdin = stdin();
+    let mut input = String::new();
 
     loop {
         print!("~> ");
         stdout.flush().unwrap();
 
-        let mut input = String::new();
+        input.clear();
         stdin.read_line(&mut input).unwrap();
 
-        let lexer = Lexer::new(input);
+        let lexer = Lexer::new(&input);
 
         let mut parser = Parser::new(lexer); 
         match parser.get() {
