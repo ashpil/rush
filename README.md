@@ -28,3 +28,8 @@ I know that the name is overused, but it's too good to pass up.
 - [ ] Quotes
 - [ ] Control flow `if` `for` `while` `case` etc
 - [ ] Expand this to-do list
+
+
+### Decisions to make
+
+* Should this shell replicate commands that are typically built-in but also have system alternatives?
