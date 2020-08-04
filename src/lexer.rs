@@ -1,5 +1,7 @@
-use std::io::{stdin, stdout, Write};
+use crate::helpers::Mode;
+use std::cell::RefCell;
 use std::iter::Peekable;
+use std::rc::Rc;
 use std::vec::IntoIter;
 
 // Parent enum for tokens
@@ -33,51 +35,80 @@ pub enum Punct {
     Semicolon,
 }
 
-// I'm not convinced this is the best way to represent a lexer
-#[derive(Debug)]
+// This representation makes it's functions very nice and easy,
+// but I'm not convinced that this is the most efficient/clean
+// the struct itself can be
 pub struct Lexer {
-    text: Peekable<IntoIter<char>>,
+    pub mode: Rc<RefCell<Mode>>,
+    line: Peekable<IntoIter<char>>,
 }
 
 impl Lexer {
-    pub fn new(text: &str) -> Lexer {
+    pub fn new(line: &str, mode: Rc<RefCell<Mode>>) -> Lexer {
         Lexer {
-            text: text.chars().collect::<Vec<_>>().into_iter().peekable(),
+            mode,
+            line: line.chars().collect::<Vec<_>>().into_iter().peekable(),
         }
     }
 
-    fn update_text(&mut self, s: &str) {
-        self.text = s.chars().collect::<Vec<_>>().into_iter().peekable();
+    fn advance_line(&mut self) {
+        if let Some(s) = self.mode.borrow_mut().next_prompt("> ") {
+            self.line = s.chars().collect::<Vec<_>>().into_iter().peekable();
+        }
     }
 
     fn peek_char(&mut self) -> Option<&char> {
-        self.text.peek()
+        self.line.peek()
     }
 
     fn next_char(&mut self) -> Option<char> {
-        self.text.next()
+        self.line.next()
     }
 
     fn skip_whitespace(&mut self) {
-        let mut next = self.peek_char(); // Is making this mutable better than
+        let mut next = self.peek_char();
         while next.is_some() && next.unwrap().is_whitespace() {
             self.next_char();
-            next = self.peek_char(); // doing `let next = self.peek_char()` (shadowing) here?
+            next = self.peek_char();
         }
     }
 
     // Reads a string of consecutive characters, then figures out if they're numbers of letters
     fn read_phrase(&mut self, c: char) -> Option<Token> {
-        let mut phrase = c.to_string();
+        let mut phrase = {
+            match c {
+                '\\' => match self.next_char() {
+                    Some('\n') => {
+                        self.advance_line();
+                        self.skip_whitespace();
+                        String::new()
+                    }
+                    Some(c) => c.to_string(),
+                    None => String::new(),
+                },
+                _ => c.to_string(),
+            }
+        };
         while let Some(c) = self.peek_char() {
-            if is_forbidden(*c) || c.is_whitespace() {
+            if *c == '\\' {
+                self.next_char();
+                if let Some(c) = self.next_char() {
+                    phrase.push(c);
+                }
+            } else if is_forbidden(*c) || c.is_whitespace() {
                 break;
             } else {
                 phrase.push(self.next_char().unwrap());
             }
         }
-        if let Ok(num) = phrase.parse::<u32>() {
-            Some(Token::Integer(num))
+        if phrase.is_empty() {
+            None
+        } else if c != '\\' {
+            if let Ok(num) = phrase.parse::<u32>() {
+                Some(Token::Integer(num))
+            } else {
+                Some(Token::Word(phrase))
+            }
         } else {
             Some(Token::Word(phrase))
         }
@@ -114,21 +145,13 @@ impl Lexer {
                 '{' => Some(Token::Punct(Punct::LBracket)),
                 '}' => Some(Token::Punct(Punct::RBracket)),
                 '"' => {
-                    let stdin = stdin();
-                    let mut stdout = stdout();
                     let mut phrase = String::new();
-                    let mut input = String::new();
                     loop {
                         match self.next_char() {
                             Some('"') => break,
                             Some(c) => phrase.push(c),
                             None => {
-                                print!("> ");
-                                stdout.flush().unwrap();
-
-                                input.clear();
-                                stdin.read_line(&mut input).unwrap();
-                                self.update_text(&input);
+                                self.advance_line();
                             }
                         }
                     }
@@ -156,10 +179,14 @@ fn is_forbidden(c: char) -> bool {
 #[cfg(test)]
 mod lexer_tests {
     use super::{Lexer, Op, Token};
+    use crate::helpers::Mode;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     #[test]
     fn test_lexer() {
-        let mut lexer = Lexer::new("exa -1 | grep cargo");
+        let mode = Rc::new(RefCell::new(Mode::new(None)));
+        let mut lexer = Lexer::new("exa -1 | grep cargo", Rc::clone(&mode));
         let expected = [
             Token::Word("exa".to_string()),
             Token::Word("-1".to_string()),

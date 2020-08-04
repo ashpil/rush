@@ -1,12 +1,13 @@
+use crate::helpers::Mode;
 use crate::lexer::Token::*;
 use crate::lexer::{Lexer, Op};
-use os_pipe::{dup_stderr, dup_stdin, dup_stdout, PipeReader, PipeWriter, pipe};
+use os_pipe::{dup_stderr, dup_stdin, dup_stdout, pipe, PipeReader, PipeWriter};
 use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::iter::Peekable;
 use std::process::Stdio;
 use std::rc::Rc;
-use std::io::{stdout, stdin, Write};
 
 #[derive(Debug, PartialEq)]
 pub enum Cmd {
@@ -86,8 +87,8 @@ impl Fd {
             Fd::Inherit => "Inherit",
             Fd::PipeOut(_) => "PipeOut",
             Fd::PipeIn(_) => "PipeIn",
-            Fd::FileName(_) => "FileName", 
-            Fd::FileNameAppend(_) => "FileNameAppend", 
+            Fd::FileName(_) => "FileName",
+            Fd::FileNameAppend(_) => "FileNameAppend",
             Fd::RawFile(_) => "RawFile", // Not completely accurate, but I think fine for now
         }
     }
@@ -95,16 +96,14 @@ impl Fd {
     // Gets an stdin - all same here as stdout, except that a file is opened, not created
     pub fn get_stdin(&mut self) -> Option<Stdio> {
         match self {
-            Fd::FileName(name) => {
-                match File::open(&name) {
-                    Ok(file) => {
-                        *self = Fd::RawFile(file.try_clone().unwrap());
-                        Some(Stdio::from(file))
-                    },
-                    Err(e) => {
-                        eprintln!("rush: {}: {}", name, e);
-                        None
-                    },
+            Fd::FileName(name) => match File::open(&name) {
+                Ok(file) => {
+                    *self = Fd::RawFile(file.try_clone().unwrap());
+                    Some(Stdio::from(file))
+                }
+                Err(e) => {
+                    eprintln!("rush: {}: {}", name, e);
+                    None
                 }
             },
             _ => self.get_stdout(),
@@ -123,16 +122,14 @@ impl Fd {
             Fd::PipeOut(writer) => Some(Stdio::from(writer.try_clone().unwrap())),
             Fd::PipeIn(reader) => Some(Stdio::from(reader.try_clone().unwrap())),
             Fd::RawFile(file) => Some(Stdio::from(file.try_clone().unwrap())),
-            Fd::FileName(name) => {
-                match File::create(&name) {
-                    Ok(file) => {
-                        *self = Fd::RawFile(file.try_clone().unwrap());
-                        Some(Stdio::from(file))
-                    },
-                    Err(e) => {
-                        eprintln!("rush: {}: {}", name, e);
-                        None
-                    },
+            Fd::FileName(name) => match File::create(&name) {
+                Ok(file) => {
+                    *self = Fd::RawFile(file.try_clone().unwrap());
+                    Some(Stdio::from(file))
+                }
+                Err(e) => {
+                    eprintln!("rush: {}: {}", name, e);
+                    None
                 }
             },
             Fd::FileNameAppend(name) => {
@@ -140,13 +137,13 @@ impl Fd {
                     Ok(file) => {
                         *self = Fd::RawFile(file.try_clone().unwrap());
                         Some(Stdio::from(file))
-                    },
+                    }
                     Err(e) => {
                         eprintln!("rush: {}: {}", name, e);
                         None
-                    },
+                    }
                 }
-            },
+            }
         }
     }
 
@@ -157,12 +154,14 @@ impl Fd {
 
 // The parser struct. Keeps track of current location in a peekable iter of tokens
 pub struct Parser {
+    mode: Rc<RefCell<Mode>>,
     lexer: Peekable<Lexer>,
 }
 
 impl Parser {
-    pub fn new(lexer: Lexer) -> Parser {
+    pub fn new(lexer: Lexer, mode: Rc<RefCell<Mode>>) -> Parser {
         Parser {
+            mode,
             lexer: lexer.peekable(),
         }
     }
@@ -260,33 +259,22 @@ impl Parser {
                     } else {
                         Err(error)
                     }
-                },
+                }
                 Op(Op::More) => {
                     if let Some(Word(s)) = self.lexer.next() {
                         Ok(Rc::new(RefCell::new(Fd::FileNameAppend(s))))
                     } else {
                         Err(error)
                     }
-                },
+                }
                 Op(Op::Less) => {
                     if let Some(Word(mut s)) = self.lexer.next() {
                         s = format!("{}\n", s);
                         let (reader, mut writer) = pipe().unwrap();
-                        let stdin = stdin();
-                        let mut stdout = stdout();
-                        let mut input = String::new();
 
-                        // Not completely satisfied with this implementation here, 
-                        // as I think I could be writing directly from stdin to the writer.
-                        // The problem is that I need to check whether the last line
-                        // is equal to right after the `<<` before writing to the buffer
-                        loop {
-                            print!("> ");
-                            stdout.flush().unwrap();
-                            input.clear();
-                            stdin.read_line(&mut input).unwrap();
+                        while let Some(input) = self.mode.borrow_mut().next_prompt("> ") {
                             if input == s {
-                                break
+                                break;
                             } else {
                                 writer.write_all(input.as_bytes()).unwrap();
                             }
@@ -295,7 +283,7 @@ impl Parser {
                     } else {
                         Err(error)
                     }
-                },
+                }
                 Word(s) => Ok(Rc::new(RefCell::new(Fd::FileName(s)))),
                 Integer(i) => Ok(Rc::new(RefCell::new(Fd::FileName(i.to_string())))),
                 _ => Err(error),
@@ -310,12 +298,16 @@ impl Parser {
 #[cfg(test)]
 mod parser_tests {
     use super::{Cmd, Io, Parser, Simple};
+    use crate::helpers::Mode;
     use crate::lexer::Lexer;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     #[test]
     fn test_and() {
-        let lexer = Lexer::new("ls | grep cargo && pwd");
-        let mut parser = Parser::new(lexer);
+        let mode = Rc::new(RefCell::new(Mode::new(None)));
+        let lexer = Lexer::new("ls | grep cargo && pwd", Rc::clone(&mode));
+        let mut parser = Parser::new(lexer, Rc::clone(&mode));
         let expected = Cmd::And(
             Box::new(Cmd::Pipeline(
                 Box::new(Cmd::Simple(Simple::new(
@@ -340,8 +332,9 @@ mod parser_tests {
 
     #[test]
     fn test_pipes() {
-        let lexer = Lexer::new("ls | grep cargo");
-        let mut parser = Parser::new(lexer);
+        let mode = Rc::new(RefCell::new(Mode::new(None)));
+        let lexer = Lexer::new("ls | grep cargo", Rc::clone(&mode));
+        let mut parser = Parser::new(lexer, Rc::clone(&mode));
         let expected = Cmd::Pipeline(
             Box::new(Cmd::Simple(Simple::new(
                 String::from("ls"),
@@ -359,8 +352,9 @@ mod parser_tests {
 
     #[test]
     fn test_simple() {
-        let lexer = Lexer::new("ls -ltr");
-        let mut parser = Parser::new(lexer);
+        let mode = Rc::new(RefCell::new(Mode::new(None)));
+        let lexer = Lexer::new("ls -ltr", Rc::clone(&mode));
+        let mut parser = Parser::new(lexer, Rc::clone(&mode));
         let expected = Cmd::Simple(Simple::new(
             String::from("ls"),
             vec![String::from("-ltr")],
