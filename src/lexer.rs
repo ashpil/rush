@@ -51,9 +51,12 @@ impl Lexer {
         }
     }
 
-    fn advance_line(&mut self) {
+    fn advance_line(&mut self) -> Result<(), ()> {
         if let Some(s) = self.mode.borrow_mut().next_prompt("> ") {
             self.line = s.chars().collect::<Vec<_>>().into_iter().peekable();
+            Ok(())
+        } else {
+            Err(())
         }
     }
 
@@ -79,7 +82,7 @@ impl Lexer {
             match c {
                 '\\' => match self.next_char() {
                     Some('\n') => {
-                        self.advance_line();
+                        let _ = self.advance_line();
                         self.skip_whitespace();
                         String::new()
                     }
@@ -151,7 +154,10 @@ impl Lexer {
                             Some('"') => break,
                             Some(c) => phrase.push(c),
                             None => {
-                                self.advance_line();
+                                if let Err(()) = self.advance_line() {
+                                    eprintln!("rush: expected '\"' but found EOF");
+                                    return None
+                                }
                             }
                         }
                     }
