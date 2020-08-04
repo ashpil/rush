@@ -39,7 +39,7 @@ pub enum Punct {
 // but I'm not convinced that this is the most efficient/clean
 // the struct itself can be
 pub struct Lexer {
-    pub mode: Rc<RefCell<Mode>>,
+    mode: Rc<RefCell<Mode>>,
     line: Peekable<IntoIter<char>>,
 }
 

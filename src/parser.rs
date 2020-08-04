@@ -33,6 +33,18 @@ impl Io {
             stderr: Rc::new(RefCell::new(Fd::Stderr)),
         }
     }
+
+    fn set_stdin(&mut self, fd: Rc<RefCell<Fd>>) {
+        self.stdin = fd;
+    }
+
+    fn set_stdout(&mut self, fd: Rc<RefCell<Fd>>) {
+        self.stdout = fd;
+    }
+
+    fn set_stderr(&mut self, fd: Rc<RefCell<Fd>>) {
+        self.stderr = fd;
+    }
 }
 
 // The most basic command - it, its arguments, and its redirections.
@@ -198,48 +210,41 @@ impl Parser {
         } else {
             let mut result = Vec::new();
 
-            let io = self.update_stds(Io::new())?;
+            let mut io = Io::new();
 
-            while let Some(Word(_)) = self.lexer.peek() {
-                if let Some(Word(word)) = self.lexer.next() {
-                    result.push(word);
+            loop {
+                match self.lexer.peek() {
+                    Some(Word(_)) => {
+                        if let Some(Word(word)) = self.lexer.next() {
+                            result.push(word);
+                        }
+                    }
+                    Some(Op(Op::Less)) => {
+                        self.lexer.next();
+                        io.set_stdin(self.token_to_fd(&io)?);
+                    },
+                    Some(Op(Op::More)) => {
+                        self.lexer.next();
+                        io.set_stdout(self.token_to_fd(&io)?);
+                    },
+                    Some(Integer(_)) => {
+                        if let Some(Integer(int)) = self.lexer.next() {
+                            self.lexer.next();
+                            match int {
+                                0 => io.set_stdin(self.token_to_fd(&io)?),
+                                1 => io.set_stdout(self.token_to_fd(&io)?),
+                                2 => io.set_stderr(self.token_to_fd(&io)?),
+                                _ => todo!(),
+                            }
+                        }
+                    },
+                    _ => break,
                 }
             }
-
-            let io = self.update_stds(io)?;
-
             if result.is_empty() {
                 Err(String::from("rush: expected command but found none"))
             } else {
                 Ok(Cmd::Simple(Simple::new(result.remove(0), result, io)))
-            }
-        }
-    }
-
-    // Redirections can happen before the command, or after, so this is called in those spots
-    fn update_stds(&mut self, mut io: Io) -> Result<Io, String> {
-        loop {
-            match self.lexer.peek() {
-                Some(Op(Op::Less)) => {
-                    self.lexer.next();
-                    io.stdin = self.token_to_fd(&io)?;
-                }
-                Some(Op(Op::More)) => {
-                    self.lexer.next();
-                    io.stdout = self.token_to_fd(&io)?;
-                }
-                Some(Integer(_)) => {
-                    if let Some(Integer(int)) = self.lexer.next() {
-                        self.lexer.next();
-                        match int {
-                            0 => io.stdin = self.token_to_fd(&io)?,
-                            1 => io.stdout = self.token_to_fd(&io)?,
-                            2 => io.stderr = self.token_to_fd(&io)?,
-                            _ => todo!(),
-                        }
-                    }
-                }
-                _ => break Ok(io),
             }
         }
     }
