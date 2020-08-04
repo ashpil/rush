@@ -23,7 +23,11 @@ I know that the name is overused, but it's too good to pass up.
       - [X] `exit`
       - [ ] `exec`
       - [ ] etc
-- [ ] Environmental variables
+- [ ] Expansions
+   - [ ] Tilde expansion
+   - [ ] Parameter expansion
+   - [ ] Command substitution
+   - [ ] Arithmetic expansion
 - [ ] Variables
 - [ ] Quotes
    - [X] Quote recongintion
