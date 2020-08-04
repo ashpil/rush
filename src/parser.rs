@@ -229,12 +229,16 @@ impl Parser {
                     },
                     Some(Integer(_)) => {
                         if let Some(Integer(int)) = self.lexer.next() {
-                            self.lexer.next();
-                            match int {
-                                0 => io.set_stdin(self.token_to_fd(&io)?),
-                                1 => io.set_stdout(self.token_to_fd(&io)?),
-                                2 => io.set_stderr(self.token_to_fd(&io)?),
-                                _ => todo!(),
+                            if let Some(Op(_)) = self.lexer.peek() { 
+                                self.lexer.next();
+                                match int {
+                                    0 => io.set_stdin(self.token_to_fd(&io)?),
+                                    1 => io.set_stdout(self.token_to_fd(&io)?),
+                                    2 => io.set_stderr(self.token_to_fd(&io)?),
+                                    _ => todo!(),
+                                }
+                            } else {
+                                result.push(int.to_string());
                             }
                         }
                     },
