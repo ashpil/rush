@@ -33,6 +33,7 @@ pub enum Punct {
     LBracket,
     RBracket,
     Semicolon,
+    Tilde,
 }
 
 // This representation makes it's functions very nice and easy,
@@ -77,78 +78,24 @@ impl Lexer {
     }
 
     // Reads a string of consecutive characters, then figures out if they're numbers of letters
-    fn read_phrase(&mut self, c: char) -> Option<Token> {
-        let mut phrase = {
-            match c {
-                '\\' => match self.next_char() {
-                    Some('\n') => {
-                        let _ = self.advance_line();
-                        self.skip_whitespace();
-                        String::new()
-                    }
-                    Some(c) => c.to_string(),
-                    None => String::new(),
-                },
-                _ => c.to_string(),
-            }
-        };
+    fn read_phrase(&mut self) -> Option<Token> {
+        let mut phrase = String::new();
+        let first = *self.peek_char().unwrap();
         while let Some(c) = self.peek_char() {
-            if *c == '\\' {
-                self.next_char();
-                if let Some(c) = self.next_char() {
-                    phrase.push(c);
-                }
-            } else if is_forbidden(*c) || c.is_whitespace() {
-                break;
-            } else {
-                phrase.push(self.next_char().unwrap());
-            }
-        }
-        if phrase.is_empty() {
-            None
-        } else if c != '\\' {
-            if let Ok(num) = phrase.parse::<u32>() {
-                Some(Token::Integer(num))
-            } else {
-                Some(Token::Word(phrase))
-            }
-        } else {
-            Some(Token::Word(phrase))
-        }
-    }
-
-    // Of course, I still haven't added everything I'll need to yet
-    pub fn next_token(&mut self) -> Option<Token> {
-        self.skip_whitespace();
-        match self.next_char() {
-            Some(c) => match c {
-                // Check whether it's two or one `|` and `&` here, as I think this is
-                // the easiest place to fit that logic in
-                '|' => {
-                    if let Some('|') = self.peek_char() {
-                        self.next_char();
-                        Some(Token::Op(Op::Or))
-                    } else {
-                        Some(Token::Op(Op::Pipe))
+            match c {
+                '\\' => {
+                    self.next_char();
+                    match self.next_char() {
+                        Some('\n') => {
+                            let _ = self.advance_line();
+                            self.skip_whitespace();
+                        },
+                        Some(c) => phrase.push(c),
+                        None => (),
                     }
-                }
-                '&' => {
-                    if let Some('&') = self.peek_char() {
-                        self.next_char();
-                        Some(Token::Op(Op::And))
-                    } else {
-                        Some(Token::Op(Op::Ampersand))
-                    }
-                }
-                '>' => Some(Token::Op(Op::More)),
-                '<' => Some(Token::Op(Op::Less)),
-                '!' => Some(Token::Op(Op::Bang)),
-                '(' => Some(Token::Punct(Punct::LParen)),
-                ')' => Some(Token::Punct(Punct::RParen)),
-                '{' => Some(Token::Punct(Punct::LBracket)),
-                '}' => Some(Token::Punct(Punct::RBracket)),
+                },
                 '"' => {
-                    let mut phrase = String::new();
+                    self.next_char();
                     loop {
                         match self.next_char() {
                             Some('"') => break,
@@ -161,10 +108,77 @@ impl Lexer {
                             }
                         }
                     }
-                    Some(Token::Word(phrase))
+                },
+                c if is_forbidden(*c) || c.is_whitespace() => break,
+                _ => phrase.push(self.next_char().unwrap()),
+            }
+        }
+        if phrase.is_empty() {
+            None
+        } else if first == '\\' {
+            Some(Token::Word(phrase))
+        } else if let Ok(num) = phrase.parse::<u32>() {
+            Some(Token::Integer(num))
+        } else {
+            Some(Token::Word(phrase))
+        }
+    }
+
+    // Of course, I still haven't added everything I'll need to yet
+    fn next_token(&mut self) -> Option<Token> {
+        self.skip_whitespace();
+        match self.peek_char() {
+            Some('|') => {
+                self.next_char();
+                if let Some('|') = self.peek_char() {
+                    self.next_char();
+                    Some(Token::Op(Op::Or))
+                } else {
+                    Some(Token::Op(Op::Pipe))
                 }
-                _ => self.read_phrase(c),
             },
+            Some('&') => {
+                self.next_char();
+                if let Some('&') = self.peek_char() {
+                    self.next_char();
+                    Some(Token::Op(Op::And))
+                } else {
+                    Some(Token::Op(Op::Ampersand))
+                }
+            },
+            Some('>') => {
+                self.next_char();
+                Some(Token::Op(Op::More))
+            },
+            Some('<') => {
+                self.next_char();
+                Some(Token::Op(Op::Less))
+            },
+            Some('!') => {
+                self.next_char();
+                Some(Token::Op(Op::Bang))
+            },
+            Some('~') => {
+                self.next_char();
+                Some(Token::Punct(Punct::Tilde))
+            },
+            Some('(') => {
+                self.next_char();
+                Some(Token::Punct(Punct::LParen))
+            },
+            Some(')') => {
+                self.next_char();
+                Some(Token::Punct(Punct::RParen))
+            },
+            Some('{') => {
+                self.next_char();
+                Some(Token::Punct(Punct::LBracket))
+            },
+            Some('}') => {
+                self.next_char();
+                Some(Token::Punct(Punct::RBracket))
+            },
+            Some(_) => self.read_phrase(),
             None => None,
         }
     }

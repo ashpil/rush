@@ -1,4 +1,5 @@
-use crate::parser::{Cmd, Fd, Simple};
+use crate::parser::{Cmd, Simple};
+use crate::helpers::Fd;
 use crate::builtins;
 use os_pipe::{pipe, PipeReader, PipeWriter};
 use std::process::Command;
