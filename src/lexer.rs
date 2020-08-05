@@ -98,6 +98,16 @@ impl Lexer {
                     loop {
                         match self.next_char() {
                             Some('"') => break,
+                            Some('\\') => {
+                                match self.next_char() {
+                                    Some('\n') => {
+                                        let _ = self.advance_line();
+                                        self.skip_whitespace();
+                                    },
+                                    Some(c) => phrase.push(c),
+                                    None => (),
+                                }
+                            },
                             Some(c) => phrase.push(c),
                             None => {
                                 if let Err(()) = self.advance_line() {
