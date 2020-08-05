@@ -30,7 +30,7 @@ I know that the name is overused, but it's too good to pass up.
    - [ ] Arithmetic expansion
 - [ ] Variables
 - [ ] Quotes
-   - [X] Quote recongintion
+   - [X] Quote recognition 
    - [ ] There's probably more, right?
 - [ ] Control flow `if` `for` `while` `case` etc
 - [ ] Expand this to-do list
