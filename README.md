@@ -24,7 +24,7 @@ I know that the name is overused, but it's too good to pass up.
       - [ ] `exec`
       - [ ] etc
 - [ ] Expansions
-   - [ ] Tilde expansion
+   - [X] Tilde expansion
    - [ ] Parameter expansion
    - [ ] Command substitution
    - [ ] Arithmetic expansion

@@ -1,8 +1,10 @@
 use crate::helpers::{Fd, Mode};
 use crate::lexer::Token::*;
 use crate::lexer::{Lexer, Op};
+use nix::unistd::User;
 use os_pipe::pipe;
 use std::cell::RefCell;
+use std::env;
 use std::io::Write;
 use std::iter::Peekable;
 use std::rc::Rc;
@@ -121,6 +123,24 @@ impl Parser {
                         if let Some(Word(word)) = self.lexer.next() {
                             result.push(word);
                         }
+                    }
+                    Some(Tilde(s)) => {
+                        if s.is_empty() || s.starts_with('/') {
+                            result.push(env::var("HOME").unwrap() + s);
+                        } else {
+                            let mut strings = s.splitn(1, '/');
+                            let name = strings.next().unwrap();
+                            if let Some(u) = User::from_name(name).unwrap() {
+                                if let Some(d) = strings.next() {
+                                    result.push(u.dir.into_os_string().into_string().unwrap() + d);
+                                } else {
+                                    result.push(u.dir.into_os_string().into_string().unwrap());
+                                }
+                            } else {
+                                result.push(String::from("~") + name);
+                            }
+                        }
+                        self.lexer.next();
                     }
                     Some(Op(Op::Less)) => {
                         self.lexer.next();

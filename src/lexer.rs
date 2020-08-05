@@ -8,6 +8,7 @@ use std::vec::IntoIter;
 #[derive(Debug, PartialEq)]
 pub enum Token {
     Word(String),
+    Tilde(String),
     Integer(u32),
     Op(Op),
     Punct(Punct),
@@ -33,7 +34,6 @@ pub enum Punct {
     LBracket,
     RBracket,
     Semicolon,
-    Tilde,
 }
 
 // This representation makes it's functions very nice and easy,
@@ -78,9 +78,8 @@ impl Lexer {
     }
 
     // Reads a string of consecutive characters, then figures out if they're numbers of letters
-    fn read_phrase(&mut self) -> Option<Token> {
+    fn read_phrase(&mut self) -> Result<String, String> {
         let mut phrase = String::new();
-        let first = *self.peek_char().unwrap();
         while let Some(c) = self.peek_char() {
             match c {
                 '\\' => {
@@ -102,8 +101,7 @@ impl Lexer {
                             Some(c) => phrase.push(c),
                             None => {
                                 if let Err(()) = self.advance_line() {
-                                    eprintln!("rush: expected '\"' but found EOF");
-                                    return None
+                                    return Err(String::from("expected endquote but found EOF"));
                                 }
                             }
                         }
@@ -113,15 +111,7 @@ impl Lexer {
                 _ => phrase.push(self.next_char().unwrap()),
             }
         }
-        if phrase.is_empty() {
-            None
-        } else if first == '\\' {
-            Some(Token::Word(phrase))
-        } else if let Ok(num) = phrase.parse::<u32>() {
-            Some(Token::Integer(num))
-        } else {
-            Some(Token::Word(phrase))
-        }
+        Ok(phrase)
     }
 
     // Of course, I still haven't added everything I'll need to yet
@@ -158,10 +148,6 @@ impl Lexer {
                 self.next_char();
                 Some(Token::Op(Op::Bang))
             },
-            Some('~') => {
-                self.next_char();
-                Some(Token::Punct(Punct::Tilde))
-            },
             Some('(') => {
                 self.next_char();
                 Some(Token::Punct(Punct::LParen))
@@ -178,7 +164,36 @@ impl Lexer {
                 self.next_char();
                 Some(Token::Punct(Punct::RBracket))
             },
-            Some(_) => self.read_phrase(),
+            Some('~') => {
+                self.next_char();
+                match self.read_phrase() {
+                    Ok(s) => Some(Token::Tilde(s)),
+                    Err(e) => {
+                        eprintln!("rush: {}", e);
+                        None
+                    },
+                }
+            },
+            Some(c) => {
+                let c = *c;
+                match self.read_phrase() {
+                    Ok(s) => {
+                        if s.is_empty() {
+                            None
+                        } else if c == '\\' {
+                            Some(Token::Word(s))
+                        } else if let Ok(num) = s.parse::<u32>() {
+                            Some(Token::Integer(num))
+                        } else {
+                            Some(Token::Word(s))
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("rush: {}", e);
+                        None
+                    },
+                }
+            },
             None => None,
         }
     }

@@ -19,8 +19,8 @@ pub fn exit(mut args: Vec<String>) -> bool {
 }
 
 pub fn cd(mut args: Vec<String>) -> bool {
-    let option = args.pop();
-    if let Err(e) = env::set_current_dir(option.as_deref().unwrap_or("/")) {
+    let new_dir = args.pop().unwrap_or(env::var("HOME").unwrap());
+    if let Err(e) = env::set_current_dir(new_dir) {
         eprintln!("rush: {}", e);
         false
     } else {

@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 os_pipe = "0.9.2"
+nix = "0.18.0"
