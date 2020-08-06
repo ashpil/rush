@@ -2,12 +2,10 @@ use std::process::exit as exit_program;
 use std::env;
 
 // Unless specified otherwise, if provided multiple arguments while only
-// accepting one, these use the last argument. Dash seems to use the first 
-// one, while bash errors. I think it doesn't matter much and popping seems
-// easiest, so for now I'm going with that 
+// accepting one, these use the first argument. Dash does this as well.  
 
-pub fn exit(mut args: Vec<String>) -> bool {
-    match args.pop().map_or(Ok(0), |x| x.parse::<i32>()) {
+pub fn exit(args: Vec<String>) -> bool {
+    match args.get(0).map_or(Ok(0), |x| x.parse::<i32>()) {
         Ok(n) => {
             exit_program(n);
         },
@@ -18,8 +16,8 @@ pub fn exit(mut args: Vec<String>) -> bool {
     }
 }
 
-pub fn cd(mut args: Vec<String>) -> bool {
-    let new_dir = args.pop().unwrap_or(env::var("HOME").unwrap());
+pub fn cd(args: Vec<String>) -> bool {
+    let new_dir = args.into_iter().next().unwrap_or(env::var("HOME").unwrap());
     if let Err(e) = env::set_current_dir(new_dir) {
         eprintln!("rush: {}", e);
         false

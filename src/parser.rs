@@ -142,6 +142,10 @@ impl Parser {
                         }
                         self.lexer.next();
                     }
+                    Some(Var(s)) => {
+                        result.push(env::var(s).unwrap_or(String::new()));
+                        self.lexer.next();
+                    }
                     Some(Op(Op::Less)) => {
                         self.lexer.next();
                         io.set_stdin(self.token_to_fd(&io)?);

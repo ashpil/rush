@@ -29,6 +29,9 @@ fn main() {
                 }
             }
         } else {
+            if mode.borrow().is_interactive() {
+                println!();
+            }
             break;
         }
     }

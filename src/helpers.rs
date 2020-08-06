@@ -45,6 +45,15 @@ impl Mode {
             },
         }
     }
+
+    pub fn is_interactive(&self) -> bool {
+        if let Mode::Interactive(_, _) = self {
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn next_prompt(&mut self, prompt: &str) -> Option<String> {
         let (stdout, lines) = match self {
             Mode::Interactive(stdout, lines) => (Some(stdout), lines),

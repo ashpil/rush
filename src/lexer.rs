@@ -9,6 +9,7 @@ use std::vec::IntoIter;
 pub enum Token {
     Word(String),
     Tilde(String),
+    Var(String),
     Integer(u32),
     Op(Op),
     Punct(Punct),
@@ -178,6 +179,16 @@ impl Lexer {
                 self.next_char();
                 match self.read_phrase() {
                     Ok(s) => Some(Token::Tilde(s)),
+                    Err(e) => {
+                        eprintln!("rush: {}", e);
+                        None
+                    },
+                }
+            },
+            Some('$') => {
+                self.next_char();
+                match self.read_phrase() {
+                    Ok(s) => Some(Token::Var(s)),
                     Err(e) => {
                         eprintln!("rush: {}", e);
                         None
