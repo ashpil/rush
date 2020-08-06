@@ -3,6 +3,7 @@ use std::fs::{self, File, OpenOptions};
 use std::process::Stdio;
 use os_pipe::{dup_stderr, dup_stdin, dup_stdout, PipeReader, PipeWriter};
 use std::collections::HashMap;
+use nix::unistd::Uid;
 
 // My own, less nasty version of BufRead::lines().
 // Returns an Option rather Option<Result>,
@@ -55,7 +56,7 @@ impl Shell {
     }
 
     pub fn next_prompt(&mut self, prompt: &str) -> Option<String> {
-        if self.interactive {
+        if self.is_interactive() {
             print!("{}", prompt);
             io::stdout().flush().unwrap();
         }
@@ -67,8 +68,12 @@ impl Iterator for Shell {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
-        if self.interactive {
-            print!("~> ");
+        if self.is_interactive() {
+            if Uid::current().is_root() {
+                print!("#> ");
+            } else {
+                print!("$> ");
+            }
             io::stdout().flush().unwrap();
         }
         self.lines.next()
