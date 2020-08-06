@@ -1,4 +1,7 @@
-use crate::helpers::Mode;
+// The Lexer does the work required before the AST can be built
+// in the parser
+
+use crate::helpers::Shell;
 use std::cell::RefCell;
 use std::iter::Peekable;
 use std::rc::Rc;
@@ -11,6 +14,7 @@ pub enum Token {
     Tilde(String),
     Var(String),
     Integer(u32),
+    Assign(String, String),
     Op(Op),
     Punct(Punct),
 }
@@ -41,20 +45,20 @@ pub enum Punct {
 // but I'm not convinced that this is the most efficient/clean
 // the struct itself can be
 pub struct Lexer {
-    mode: Rc<RefCell<Mode>>,
+    shell: Rc<RefCell<Shell>>,
     line: Peekable<IntoIter<char>>,
 }
 
 impl Lexer {
-    pub fn new(line: &str, mode: Rc<RefCell<Mode>>) -> Lexer {
+    pub fn new(line: &str, shell: Rc<RefCell<Shell>>) -> Lexer {
         Lexer {
-            mode,
+            shell,
             line: line.chars().collect::<Vec<_>>().into_iter().peekable(),
         }
     }
 
     fn advance_line(&mut self) -> Result<(), ()> {
-        if let Some(s) = self.mode.borrow_mut().next_prompt("> ") {
+        if let Some(s) = self.shell.borrow_mut().next_prompt("> ") {
             self.line = s.chars().collect::<Vec<_>>().into_iter().peekable();
             Ok(())
         } else {
@@ -89,25 +93,23 @@ impl Lexer {
                         Some('\n') => {
                             let _ = self.advance_line();
                             self.skip_whitespace();
-                        },
+                        }
                         Some(c) => phrase.push(c),
                         None => (),
                     }
-                },
+                }
                 '"' => {
                     self.next_char();
                     loop {
                         match self.next_char() {
                             Some('"') => break,
-                            Some('\\') => {
-                                match self.next_char() {
-                                    Some('\n') => {
-                                        let _ = self.advance_line();
-                                        self.skip_whitespace();
-                                    },
-                                    Some(c) => phrase.push(c),
-                                    None => (),
+                            Some('\\') => match self.next_char() {
+                                Some('\n') => {
+                                    let _ = self.advance_line();
+                                    self.skip_whitespace();
                                 }
+                                Some(c) => phrase.push(c),
+                                None => (),
                             },
                             Some(c) => phrase.push(c),
                             None => {
@@ -117,7 +119,7 @@ impl Lexer {
                             }
                         }
                     }
-                },
+                }
                 c if is_forbidden(*c) || c.is_whitespace() => break,
                 _ => phrase.push(self.next_char().unwrap()),
             }
@@ -137,7 +139,7 @@ impl Lexer {
                 } else {
                     Some(Token::Op(Op::Pipe))
                 }
-            },
+            }
             Some('&') => {
                 self.next_char();
                 if let Some('&') = self.peek_char() {
@@ -146,35 +148,35 @@ impl Lexer {
                 } else {
                     Some(Token::Op(Op::Ampersand))
                 }
-            },
+            }
             Some('>') => {
                 self.next_char();
                 Some(Token::Op(Op::More))
-            },
+            }
             Some('<') => {
                 self.next_char();
                 Some(Token::Op(Op::Less))
-            },
+            }
             Some('!') => {
                 self.next_char();
                 Some(Token::Op(Op::Bang))
-            },
+            }
             Some('(') => {
                 self.next_char();
                 Some(Token::Punct(Punct::LParen))
-            },
+            }
             Some(')') => {
                 self.next_char();
                 Some(Token::Punct(Punct::RParen))
-            },
+            }
             Some('{') => {
                 self.next_char();
                 Some(Token::Punct(Punct::LBracket))
-            },
+            }
             Some('}') => {
                 self.next_char();
                 Some(Token::Punct(Punct::RBracket))
-            },
+            }
             Some('~') => {
                 self.next_char();
                 match self.read_phrase() {
@@ -182,9 +184,9 @@ impl Lexer {
                     Err(e) => {
                         eprintln!("rush: {}", e);
                         None
-                    },
+                    }
                 }
-            },
+            }
             Some('$') => {
                 self.next_char();
                 match self.read_phrase() {
@@ -192,9 +194,9 @@ impl Lexer {
                     Err(e) => {
                         eprintln!("rush: {}", e);
                         None
-                    },
+                    }
                 }
-            },
+            }
             Some(c) => {
                 let c = *c;
                 match self.read_phrase() {
@@ -205,16 +207,22 @@ impl Lexer {
                             Some(Token::Word(s))
                         } else if let Ok(num) = s.parse::<u32>() {
                             Some(Token::Integer(num))
+                        } else if s.contains('=') && &s != "=" {
+                            let mut parts = s.splitn(2, '=');
+                            Some(Token::Assign(
+                                parts.next()?.to_string(),
+                                parts.next()?.to_string(),
+                            ))
                         } else {
                             Some(Token::Word(s))
                         }
-                    },
+                    }
                     Err(e) => {
                         eprintln!("rush: {}", e);
                         None
-                    },
+                    }
                 }
-            },
+            }
             None => None,
         }
     }
@@ -228,21 +236,21 @@ impl Iterator for Lexer {
 }
 
 fn is_forbidden(c: char) -> bool {
-    matches!(c, '&' | '!' | '|' | '<' | '>')
+    matches!(c, '&' | '!' | '|' | '<' | '>' | '$')
 }
 
 // TODO: More tests
 #[cfg(test)]
 mod lexer_tests {
     use super::{Lexer, Op, Token};
-    use crate::helpers::Mode;
+    use crate::helpers::Shell;
     use std::cell::RefCell;
     use std::rc::Rc;
 
     #[test]
     fn test_lexer() {
-        let mode = Rc::new(RefCell::new(Mode::new(None)));
-        let mut lexer = Lexer::new("exa -1 | grep cargo", Rc::clone(&mode));
+        let shell = Rc::new(RefCell::new(Shell::new(None)));
+        let mut lexer = Lexer::new("exa -1 | grep cargo", Rc::clone(&shell));
         let expected = [
             Token::Word("exa".to_string()),
             Token::Word("-1".to_string()),

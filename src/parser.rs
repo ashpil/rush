@@ -1,9 +1,10 @@
-use crate::helpers::{Fd, Mode};
+use crate::helpers::{Fd, Shell};
 use crate::lexer::Token::*;
 use crate::lexer::{Lexer, Op};
 use nix::unistd::User;
 use os_pipe::pipe;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::env;
 use std::io::Write;
 use std::iter::Peekable;
@@ -16,6 +17,7 @@ pub enum Cmd {
     And(Box<Cmd>, Box<Cmd>),
     Or(Box<Cmd>, Box<Cmd>),
     Not(Box<Cmd>),
+    Empty,
 }
 
 // Keeps track of io in one spot before it's put into a command
@@ -52,6 +54,7 @@ impl Io {
 pub struct Simple {
     pub cmd: String,
     pub args: Vec<String>,
+    pub env: Option<HashMap<String, String>>,
     pub stdin: Rc<RefCell<Fd>>,
     pub stdout: Rc<RefCell<Fd>>,
     pub stderr: Rc<RefCell<Fd>>,
@@ -62,23 +65,28 @@ impl Simple {
         Simple {
             cmd,
             args,
+            env: None,
             stdin: io.stdin,
             stdout: io.stdout,
             stderr: io.stderr,
         }
     }
+
+    fn add_env(&mut self, map: HashMap<String, String>) {
+        self.env = Some(map);
+    }
 }
 
 // The parser struct. Keeps track of current location in a peekable iter of tokens
 pub struct Parser {
-    mode: Rc<RefCell<Mode>>,
+    shell: Rc<RefCell<Shell>>,
     lexer: Peekable<Lexer>,
 }
 
 impl Parser {
-    pub fn new(lexer: Lexer, mode: Rc<RefCell<Mode>>) -> Parser {
+    pub fn new(lexer: Lexer, shell: Rc<RefCell<Shell>>) -> Parser {
         Parser {
-            mode,
+            shell,
             lexer: lexer.peekable(),
         }
     }
@@ -114,8 +122,8 @@ impl Parser {
             Ok(Cmd::Not(Box::new(self.get_simple()?)))
         } else {
             let mut result = Vec::new();
-
             let mut io = Io::new();
+            let mut map = HashMap::new();
 
             loop {
                 match self.lexer.peek() {
@@ -143,8 +151,21 @@ impl Parser {
                         self.lexer.next();
                     }
                     Some(Var(s)) => {
-                        result.push(env::var(s).unwrap_or(String::new()));
+                        result.push(
+                            env::var(s).unwrap_or(
+                                self.shell
+                                    .borrow()
+                                    .vars
+                                    .get(s)
+                                    .map_or(String::new(), |s| String::from(s)),
+                            ),
+                        );
                         self.lexer.next();
+                    }
+                    Some(Assign(_, _)) => {
+                        if let Some(Assign(key, var)) = self.lexer.next() {
+                            map.insert(key, var);
+                        }
                     }
                     Some(Op(Op::Less)) => {
                         self.lexer.next();
@@ -173,9 +194,29 @@ impl Parser {
                 }
             }
             if result.is_empty() {
-                Err(String::from("rush: expected command but found none"))
+                if map.is_empty() {
+                    Err(String::from("rush: expected command but found none"))
+                } else {
+                    map = map
+                        .into_iter()
+                        .filter_map(|(k, v)| {
+                            if env::var_os(&k).is_some() {
+                                env::set_var(k, v);
+                                None
+                            } else {
+                                Some((k, v))
+                            }
+                        })
+                        .collect();
+                    self.shell.borrow_mut().vars.extend(map);
+                    Ok(Cmd::Empty)
+                }
             } else {
-                Ok(Cmd::Simple(Simple::new(result.remove(0), result, io)))
+                let mut cmd = Simple::new(result.remove(0), result, io);
+                if !map.is_empty() {
+                    cmd.add_env(map);
+                }
+                Ok(Cmd::Simple(cmd))
             }
         }
     }
@@ -208,7 +249,7 @@ impl Parser {
                         s = format!("{}\n", s);
                         let (reader, mut writer) = pipe().unwrap();
 
-                        while let Some(input) = self.mode.borrow_mut().next_prompt("> ") {
+                        while let Some(input) = self.shell.borrow_mut().next_prompt("> ") {
                             if input == s {
                                 break;
                             } else {
@@ -234,16 +275,16 @@ impl Parser {
 #[cfg(test)]
 mod parser_tests {
     use super::{Cmd, Io, Parser, Simple};
-    use crate::helpers::Mode;
+    use crate::helpers::Shell;
     use crate::lexer::Lexer;
     use std::cell::RefCell;
     use std::rc::Rc;
 
     #[test]
     fn test_and() {
-        let mode = Rc::new(RefCell::new(Mode::new(None)));
-        let lexer = Lexer::new("ls | grep cargo && pwd", Rc::clone(&mode));
-        let mut parser = Parser::new(lexer, Rc::clone(&mode));
+        let shell = Rc::new(RefCell::new(Shell::new(None)));
+        let lexer = Lexer::new("ls | grep cargo && pwd", Rc::clone(&shell));
+        let mut parser = Parser::new(lexer, Rc::clone(&shell));
         let expected = Cmd::And(
             Box::new(Cmd::Pipeline(
                 Box::new(Cmd::Simple(Simple::new(
@@ -268,9 +309,9 @@ mod parser_tests {
 
     #[test]
     fn test_pipes() {
-        let mode = Rc::new(RefCell::new(Mode::new(None)));
-        let lexer = Lexer::new("ls | grep cargo", Rc::clone(&mode));
-        let mut parser = Parser::new(lexer, Rc::clone(&mode));
+        let shell = Rc::new(RefCell::new(Shell::new(None)));
+        let lexer = Lexer::new("ls | grep cargo", Rc::clone(&shell));
+        let mut parser = Parser::new(lexer, Rc::clone(&shell));
         let expected = Cmd::Pipeline(
             Box::new(Cmd::Simple(Simple::new(
                 String::from("ls"),
@@ -288,9 +329,9 @@ mod parser_tests {
 
     #[test]
     fn test_simple() {
-        let mode = Rc::new(RefCell::new(Mode::new(None)));
-        let lexer = Lexer::new("ls -ltr", Rc::clone(&mode));
-        let mut parser = Parser::new(lexer, Rc::clone(&mode));
+        let shell = Rc::new(RefCell::new(Shell::new(None)));
+        let lexer = Lexer::new("ls -ltr", Rc::clone(&shell));
+        let mut parser = Parser::new(lexer, Rc::clone(&shell));
         let expected = Cmd::Simple(Simple::new(
             String::from("ls"),
             vec![String::from("-ltr")],

@@ -2,6 +2,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::fs::{self, File, OpenOptions};
 use std::process::Stdio;
 use os_pipe::{dup_stderr, dup_stdin, dup_stdout, PipeReader, PipeWriter};
+use std::collections::HashMap;
 
 // My own, less nasty version of BufRead::lines().
 // Returns an Option rather Option<Result>,
@@ -29,57 +30,48 @@ impl<B: BufRead> Iterator for Lines<B> {
     }
 }
 
-pub enum Mode {
-    Interactive(io::Stdout, Lines<Box<dyn BufRead>>),
-    File(Lines<Box<dyn BufRead>>),
+pub struct Shell {
+    lines: Lines<Box<dyn BufRead>>,
+    interactive: bool,
+    pub vars: HashMap<String, String>,
 }
 
-impl Mode {
-    pub fn new(file: Option<String>) -> Mode {
-        match file {
-            Some(filename) => {
-                Mode::File(Lines::new(Box::new(BufReader::new(fs::File::open(filename).unwrap()))))
-            },
-            None => {
-                Mode::Interactive(io::stdout(), Lines::new(Box::new(BufReader::new(io::stdin()))))
-            },
+impl Shell {
+    pub fn new(file: Option<String>) -> Shell {
+        let (lines, interactive): (Lines<Box<dyn BufRead>>, bool) = if let Some(filename) = file {
+            (Lines::new(Box::new(BufReader::new(fs::File::open(filename).unwrap()))), false)
+        } else {
+            (Lines::new(Box::new(BufReader::new(io::stdin()))), true)
+        };
+        Shell {
+            lines, 
+            interactive,
+            vars: HashMap::new(),
         }
     }
 
     pub fn is_interactive(&self) -> bool {
-        if let Mode::Interactive(_, _) = self {
-            true
-        } else {
-            false
-        }
+        self.interactive
     }
 
     pub fn next_prompt(&mut self, prompt: &str) -> Option<String> {
-        let (stdout, lines) = match self {
-            Mode::Interactive(stdout, lines) => (Some(stdout), lines),
-            Mode::File(lines) => (None, lines),
-        };
-        if let Some(stdout) = stdout {
+        if self.interactive {
             print!("{}", prompt);
-            stdout.flush().unwrap();
+            io::stdout().flush().unwrap();
         }
-        lines.next()
+        self.lines.next()
     }
 }
 
-impl Iterator for Mode {
+impl Iterator for Shell {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
-        let (stdout, lines) = match self {
-            Mode::Interactive(stdout, lines) => (Some(stdout), lines),
-            Mode::File(lines) => (None, lines),
-        };
-        if let Some(stdout) = stdout {
+        if self.interactive {
             print!("~> ");
-            stdout.flush().unwrap();
+            io::stdout().flush().unwrap();
         }
-        lines.next()
+        self.lines.next()
     }
 
 }

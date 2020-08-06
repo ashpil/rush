@@ -1,9 +1,8 @@
-use crate::parser::{Cmd, Simple};
-use crate::helpers::Fd;
 use crate::builtins;
+use crate::helpers::Fd;
+use crate::parser::{Cmd, Simple};
 use os_pipe::{pipe, PipeReader, PipeWriter};
 use std::process::Command;
-
 
 // This is useful to keep track of what each command does with its STDs
 #[derive(Debug)]
@@ -40,7 +39,7 @@ pub fn execute(ast: Cmd) {
 }
 
 // Probably not ideal for all of these to return a bool,
-// but it works for now. Once I figure out what's non-ideal 
+// but it works for now. Once I figure out what's non-ideal
 // about it, I'll fix it
 fn visit(node: Cmd, stdio: CmdMeta) -> bool {
     match node {
@@ -49,6 +48,7 @@ fn visit(node: Cmd, stdio: CmdMeta) -> bool {
         Cmd::And(cmd0, cmd1) => visit_and(*cmd0, *cmd1, stdio),
         Cmd::Or(cmd0, cmd1) => visit_or(*cmd0, *cmd1, stdio),
         Cmd::Not(cmd) => visit_not(*cmd, stdio),
+        Cmd::Empty => true,
     }
 }
 
@@ -106,6 +106,9 @@ fn visit_simple(mut simple: Simple, stdio: CmdMeta) -> bool {
                 cmd.stderr(stderr);
             } else {
                 return false;
+            }
+            if let Some(env) = simple.env {
+                cmd.envs(env);
             }
 
             match cmd.status() {

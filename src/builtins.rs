@@ -17,7 +17,7 @@ pub fn exit(args: Vec<String>) -> bool {
 }
 
 pub fn cd(args: Vec<String>) -> bool {
-    let new_dir = args.into_iter().next().unwrap_or(env::var("HOME").unwrap());
+    let new_dir = args.into_iter().next().unwrap_or_else(|| env::var("HOME").unwrap());
     if let Err(e) = env::set_current_dir(new_dir) {
         eprintln!("rush: {}", e);
         false

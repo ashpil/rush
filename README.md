@@ -21,6 +21,7 @@ I know that the name is overused, but it's too good to pass up.
       - [ ] etc
    - [ ] Special built-ins
       - [X] `exit`
+      - [ ] `export`
       - [ ] `exec`
       - [ ] etc
 - [ ] Expansions
@@ -28,7 +29,7 @@ I know that the name is overused, but it's too good to pass up.
    - [ ] Parameter expansion
    - [ ] Command substitution
    - [ ] Arithmetic expansion
-- [ ] Variables
+- [X] Variables
 - [ ] Quotes
    - [X] Quote recognition 
    - [ ] There's probably more, right?

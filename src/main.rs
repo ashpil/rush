@@ -1,7 +1,7 @@
 use rush::lexer::Lexer;
 use rush::parser::Parser;
 use rush::runner::execute;
-use rush::helpers::Mode;
+use rush::helpers::Shell;
 use std::env;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -10,13 +10,13 @@ fn main() {
     let mut args = env::args();
     args.next();
 
-    let mode = Rc::new(RefCell::new(Mode::new(args.last())));
+    let shell = Rc::new(RefCell::new(Shell::new(args.last())));
 
     loop {
-        let input = mode.borrow_mut().next();
+        let input = shell.borrow_mut().next();
         if let Some(line) = input {
-            let lexer = Lexer::new(&line, Rc::clone(&mode));
-            let mut parser = Parser::new(lexer, Rc::clone(&mode));
+            let lexer = Lexer::new(&line, Rc::clone(&shell));
+            let mut parser = Parser::new(lexer, Rc::clone(&shell));
             match parser.get() {
                 Ok(command) => {
                     #[cfg(debug_assertions)] // Only include when not built with `--release` flag
@@ -29,7 +29,7 @@ fn main() {
                 }
             }
         } else {
-            if mode.borrow().is_interactive() {
+            if shell.borrow().is_interactive() {
                 println!();
             }
             break;
