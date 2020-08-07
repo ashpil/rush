@@ -7,16 +7,35 @@ use std::iter::Peekable;
 use std::rc::Rc;
 use std::vec::IntoIter;
 
+use self::Expand::*;
+
 // Parent enum for tokens
 #[derive(Debug, PartialEq)]
 pub enum Token {
-    Word(String),
-    Tilde(String),
-    Var(String),
+    Word(Vec<Expand>),
     Integer(u32),
-    Assign(String, String),
+    Assign(String, Vec<Expand>),
     Op(Op),
     Punct(Punct),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Expand {
+    Literal(String),
+    Var(String),
+    Brace(String, Vec<Expand>),
+    Tilde(String),
+}
+
+impl Expand {
+    fn get_name(self) -> String {
+        match self {
+            Literal(s) => s,
+            Var(s) => s,
+            Brace(s, _) => s,
+            Tilde(s) => s,
+        }
+    }
 }
 
 // Operators
@@ -57,12 +76,12 @@ impl Lexer {
         }
     }
 
-    fn advance_line(&mut self) -> Result<(), ()> {
+    fn advance_line(&mut self) -> Result<(), String> {
         if let Some(s) = self.shell.borrow_mut().next_prompt("> ") {
             self.line = s.chars().collect::<Vec<_>>().into_iter().peekable();
             Ok(())
         } else {
-            Err(())
+            Err(String::from("expected more input but found one"))
         }
     }
 
@@ -82,43 +101,57 @@ impl Lexer {
         }
     }
 
-    // Reads a string of consecutive characters, then figures out if they're numbers of letters
-    fn read_phrase(&mut self) -> Result<String, String> {
+    fn read_words(&mut self) -> Result<Vec<Expand>, String> {
+        let mut words = Vec::new();
+        while let Some(c) = self.peek_char() {
+            match c {
+                '$' => {
+                    self.next_char();
+                    words.push(Var(self.read_literal()?));
+                }
+                '~' => {
+                    self.next_char();
+                    words.push(Tilde(self.read_literal()?));
+                }
+                '"' => {
+                    self.next_char();
+                    let mut phrase = String::new();
+                    loop {
+                        match self.next_char() {
+                            Some('"') => break,
+                            Some('\\') => match self.next_char() {
+                                Some('\n') => self.advance_line()?,
+                                Some(c) => phrase.push(c),
+                                None => (),
+                            },
+                            Some(c) => phrase.push(c),
+                            None => self.advance_line()?,
+                        }
+                    }
+                    words.push(Literal(phrase));
+                }
+                c if is_forbidden(*c) || c.is_whitespace() => break,
+                _ => words.push(Literal(self.read_literal()?)),
+            }
+        }
+        Ok(words)
+    }
+
+    fn read_literal(&mut self) -> Result<String, String> {
         let mut phrase = String::new();
         while let Some(c) = self.peek_char() {
             match c {
                 '\\' => {
                     self.next_char();
                     match self.next_char() {
-                        Some('\n') => {
-                            let _ = self.advance_line();
-                            self.skip_whitespace();
-                        }
+                        Some('\n') => self.advance_line()?,
                         Some(c) => phrase.push(c),
-                        None => (),
+                        None => break,
                     }
                 }
-                '"' => {
-                    self.next_char();
-                    loop {
-                        match self.next_char() {
-                            Some('"') => break,
-                            Some('\\') => match self.next_char() {
-                                Some('\n') => {
-                                    let _ = self.advance_line();
-                                    self.skip_whitespace();
-                                }
-                                Some(c) => phrase.push(c),
-                                None => (),
-                            },
-                            Some(c) => phrase.push(c),
-                            None => {
-                                if let Err(()) = self.advance_line() {
-                                    return Err(String::from("expected endquote but found EOF"));
-                                }
-                            }
-                        }
-                    }
+                '=' => {
+                    phrase.push(self.next_char().unwrap());
+                    break
                 }
                 c if is_forbidden(*c) || c.is_whitespace() => break,
                 _ => phrase.push(self.next_char().unwrap()),
@@ -169,52 +202,24 @@ impl Lexer {
                 self.next_char();
                 Some(Token::Punct(Punct::RParen))
             }
-            Some('{') => {
-                self.next_char();
-                Some(Token::Punct(Punct::LBracket))
-            }
-            Some('}') => {
-                self.next_char();
-                Some(Token::Punct(Punct::RBracket))
-            }
-            Some('~') => {
-                self.next_char();
-                match self.read_phrase() {
-                    Ok(s) => Some(Token::Tilde(s)),
-                    Err(e) => {
-                        eprintln!("rush: {}", e);
-                        None
-                    }
-                }
-            }
-            Some('$') => {
-                self.next_char();
-                match self.read_phrase() {
-                    Ok(s) => Some(Token::Var(s)),
-                    Err(e) => {
-                        eprintln!("rush: {}", e);
-                        None
-                    }
-                }
-            }
-            Some(c) => {
-                let c = *c;
-                match self.read_phrase() {
-                    Ok(s) => {
-                        if s.is_empty() {
-                            None
-                        } else if c == '\\' {
-                            Some(Token::Word(s))
-                        } else if let Ok(num) = s.parse::<u32>() {
-                            Some(Token::Integer(num))
-                        } else if s.contains('=') && &s != "=" {
-                            let mut parts = s.splitn(2, '=');
-                            Some(Token::Assign(
-                                parts.next()?.to_string(),
-                                parts.next()?.to_string(),
-                            ))
-                        } else {
-                            Some(Token::Word(s))
+            Some(_) => {
+                match self.read_words() {
+                    Ok(w) => {
+                        match &w[..] {
+                            [Literal(s)] => {
+                                if let Ok(num) = s.parse::<u32>() {
+                                    Some(Token::Integer(num))
+                                } else {
+                                    Some(Token::Word(w))
+                                }
+                            }
+                            [Literal(s), ..] if s.ends_with('=') => {
+                                let mut iter = w.into_iter();
+                                let mut name = iter.next().unwrap().get_name();
+                                name.pop();
+                                Some(Token::Assign(name, iter.collect()))
+                            }
+                            _ => Some(Token::Word(w)),
                         }
                     }
                     Err(e) => {

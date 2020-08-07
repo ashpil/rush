@@ -1,6 +1,9 @@
 use crate::helpers::{Fd, Shell};
 use crate::lexer::Token::*;
-use crate::lexer::{Lexer, Op};
+use crate::lexer::{
+    Expand::{self, *},
+    Lexer, Op,
+};
 use nix::unistd::User;
 use os_pipe::pipe;
 use std::cell::RefCell;
@@ -128,43 +131,13 @@ impl Parser {
             loop {
                 match self.lexer.peek() {
                     Some(Word(_)) => {
-                        if let Some(Word(word)) = self.lexer.next() {
-                            result.push(word);
+                        if let Some(Word(expansions)) = self.lexer.next() {
+                            result.push(self.expand_word(expansions))
                         }
-                    }
-                    Some(Tilde(s)) => {
-                        if s.is_empty() || s.starts_with('/') {
-                            result.push(env::var("HOME").unwrap() + s);
-                        } else {
-                            let mut strings = s.splitn(1, '/');
-                            let name = strings.next().unwrap();
-                            if let Some(u) = User::from_name(name).unwrap() {
-                                if let Some(d) = strings.next() {
-                                    result.push(u.dir.into_os_string().into_string().unwrap() + d);
-                                } else {
-                                    result.push(u.dir.into_os_string().into_string().unwrap());
-                                }
-                            } else {
-                                result.push(String::from("~") + name);
-                            }
-                        }
-                        self.lexer.next();
-                    }
-                    Some(Var(s)) => {
-                        result.push(
-                            env::var(s).unwrap_or(
-                                self.shell
-                                    .borrow()
-                                    .vars
-                                    .get(s)
-                                    .map_or(String::new(), |s| String::from(s)),
-                            ),
-                        );
-                        self.lexer.next();
                     }
                     Some(Assign(_, _)) => {
                         if let Some(Assign(key, var)) = self.lexer.next() {
-                            map.insert(key, var);
+                            map.insert(key, self.expand_word(var));
                         }
                     }
                     Some(Op(Op::Less)) => {
@@ -221,6 +194,44 @@ impl Parser {
         }
     }
 
+    fn expand_word(&mut self, expansions: Vec<Expand>) -> String {
+        let mut phrase = String::new();
+        for word in expansions {
+            match word {
+                Literal(s) => phrase.push_str(&s),
+                Tilde(s) => {
+                    if s.is_empty() || s.starts_with('/') {
+                        phrase.push_str(&env::var("HOME").unwrap());
+                        phrase.push_str(&s);
+                    } else {
+                        let mut strings = s.splitn(1, '/');
+                        let name = strings.next().unwrap();
+                        if let Some(user) = User::from_name(name).unwrap() {
+                            phrase.push_str(user.dir.as_os_str().to_str().unwrap());
+                            if let Some(path) = strings.next() {
+                                phrase.push_str(path);
+                            }
+                        } else {
+                            phrase.push('~');
+                            phrase.push_str(name);
+                        }
+                    }
+                }
+                Var(s) => {
+                    phrase.push_str(
+                        self.shell
+                            .borrow()
+                            .vars
+                            .get(&s)
+                            .unwrap_or(&env::var(s).unwrap_or_default()),
+                    );
+                }
+                Brace(_, _) => todo!(),
+            }
+        }
+        phrase
+    }
+
     fn token_to_fd(&mut self, io: &Io) -> Result<Rc<RefCell<Fd>>, String> {
         let error = String::from("rush: expected redirection location but found none");
         if let Some(token) = self.lexer.next() {
@@ -239,13 +250,16 @@ impl Parser {
                 }
                 Op(Op::More) => {
                     if let Some(Word(s)) = self.lexer.next() {
-                        Ok(Rc::new(RefCell::new(Fd::FileNameAppend(s))))
+                        Ok(Rc::new(RefCell::new(Fd::FileNameAppend(
+                            self.expand_word(s),
+                        ))))
                     } else {
                         Err(error)
                     }
                 }
                 Op(Op::Less) => {
-                    if let Some(Word(mut s)) = self.lexer.next() {
+                    if let Some(Word(s)) = self.lexer.next() {
+                        let mut s = self.expand_word(s);
                         s = format!("{}\n", s);
                         let (reader, mut writer) = pipe().unwrap();
 
@@ -261,7 +275,7 @@ impl Parser {
                         Err(error)
                     }
                 }
-                Word(s) => Ok(Rc::new(RefCell::new(Fd::FileName(s)))),
+                Word(s) => Ok(Rc::new(RefCell::new(Fd::FileName(self.expand_word(s))))),
                 Integer(i) => Ok(Rc::new(RefCell::new(Fd::FileName(i.to_string())))),
                 _ => Err(error),
             }
