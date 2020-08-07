@@ -132,7 +132,10 @@ impl Parser {
                 match self.lexer.peek() {
                     Some(Word(_)) => {
                         if let Some(Word(expansions)) = self.lexer.next() {
-                            result.push(self.expand_word(expansions))
+                            let word = self.expand_word(expansions);
+                            if !word.is_empty() {
+                                result.push(word)
+                            }
                         }
                     }
                     Some(Assign(_, _)) => {

@@ -206,18 +206,18 @@ impl Lexer {
                 match self.read_words() {
                     Ok(w) => {
                         match &w[..] {
+                            [Literal(s), ..] if s.ends_with('=') && s.chars().filter(|c| c.is_numeric()).count() != s.len() - 1 => {
+                                let mut iter = w.into_iter();
+                                let mut name = iter.next().unwrap().get_name();
+                                name.pop();
+                                Some(Token::Assign(name, iter.collect()))
+                            }
                             [Literal(s)] => {
                                 if let Ok(num) = s.parse::<u32>() {
                                     Some(Token::Integer(num))
                                 } else {
                                     Some(Token::Word(w))
                                 }
-                            }
-                            [Literal(s), ..] if s.ends_with('=') => {
-                                let mut iter = w.into_iter();
-                                let mut name = iter.next().unwrap().get_name();
-                                name.pop();
-                                Some(Token::Assign(name, iter.collect()))
                             }
                             _ => Some(Token::Word(w)),
                         }
