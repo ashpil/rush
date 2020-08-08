@@ -2,7 +2,7 @@ use crate::helpers::{Fd, Shell};
 use crate::lexer::Token::*;
 use crate::lexer::{
     Expand::{self, *},
-    Lexer, Op,
+    Lexer, Op, Action,
 };
 use nix::unistd::User;
 use os_pipe::pipe;
@@ -12,6 +12,7 @@ use std::env;
 use std::io::Write;
 use std::iter::Peekable;
 use std::rc::Rc;
+use std::process::exit;
 
 #[derive(Debug, PartialEq)]
 pub enum Cmd {
@@ -131,10 +132,14 @@ impl Parser {
             loop {
                 match self.lexer.peek() {
                     Some(Word(_)) => {
-                        if let Some(Word(expansions)) = self.lexer.next() {
-                            let word = self.expand_word(expansions);
-                            if !word.is_empty() {
-                                result.push(word)
+                        if let Some(Word(mut expansions)) = self.lexer.next() {
+                            if let [Literal(_)] = &expansions[..] {
+                                result.push(expansions.pop().unwrap().get_name())
+                            } else {
+                                let word = self.expand_word(expansions);
+                                if !word.is_empty() {
+                                    result.push(word)
+                                }
                             }
                         }
                     }
@@ -229,7 +234,76 @@ impl Parser {
                             .unwrap_or(&env::var(s).unwrap_or_default()),
                     );
                 }
-                Brace(_, _) => todo!(),
+                Brace(key, action, word) => {
+                    let val = self.shell.borrow().get_var(&key);
+                    match action {
+                        Action::UseDefault(null) => {
+                            if let Some(s) = val {
+                                if s == "" && null {
+                                    phrase.push_str(&self.expand_word(word))
+                                } else {
+                                    phrase.push_str(&s)
+                                }
+                            } else {
+                                phrase.push_str(&self.expand_word(word))
+                            }
+                        }
+                        Action::AssignDefault(null) => {
+                            if let Some(s) = val {
+                                if s == "" && null {
+                                    let expanded = self.expand_word(word);
+                                    phrase.push_str(&expanded);
+                                    self.shell.borrow_mut().set_var(key, expanded);
+                                } else {
+                                    phrase.push_str(&s)
+                                }
+                            } else {
+                                let expanded = self.expand_word(word);
+                                phrase.push_str(&expanded);
+                                self.shell.borrow_mut().set_var(key, expanded);
+                            }
+                        }
+                        Action::IndicateError(null) => {
+                            if let Some(s) = val {
+                                if s == "" && null {
+                                    let message = self.expand_word(word);
+                                    if message.is_empty() {
+                                        eprintln!("rush: {}: parameter null", key);
+                                    } else {
+                                        eprintln!("rush: {}: {}", key, message);
+                                    }
+                                    if !self.shell.borrow().is_interactive() {
+                                        exit(1);
+                                    }
+                                } else {
+                                    phrase.push_str(&s)
+                                }
+                            } else {
+                                let message = self.expand_word(word);
+                                if message.is_empty() {
+                                    eprintln!("rush: {}: parameter not set", key);
+                                } else {
+                                    eprintln!("rush: {}: {}", key, message);
+                                }
+                                if !self.shell.borrow().is_interactive() {
+                                    exit(1);
+                                }
+                            }
+                        }
+                        Action::UseAlternate(null) => {
+                            if let Some(s) = val {
+                                if s != "" || !null {
+                                    phrase.push_str(&self.expand_word(word))
+                                }
+                            }
+                        }
+                        Action::RmSmallestSuffix => todo!(),
+                        Action::RmLargestSuffix => todo!(),  
+                        Action::RmSmallestPrefix => todo!(),  
+                        Action::RmLargestPrefix => todo!(),  
+                        Action::StringLength => todo!(),  
+                    }
+                }
             }
         }
         phrase

@@ -23,17 +23,31 @@ pub enum Token {
 pub enum Expand {
     Literal(String),
     Var(String),
-    Brace(String, Vec<Expand>),
     Tilde(String),
+    Brace(String, Action, Vec<Expand>),
+}
+
+// What the brace does expansion does:
+// https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html#tag_18_06_02
+// If true test for unset or null, if false, only unset
+// For prefix/suffix, true for largest false for smallest
+#[derive(Debug, PartialEq)]
+pub enum Action {
+    UseDefault(bool),
+    AssignDefault(bool),
+    IndicateError(bool),
+    UseAlternate(bool),
+    RmSmallestSuffix,
+    RmLargestSuffix,
+    RmSmallestPrefix,
+    RmLargestPrefix,
+    StringLength,
 }
 
 impl Expand {
-    fn get_name(self) -> String {
+    pub fn get_name(self) -> String {
         match self {
-            Literal(s) => s,
-            Var(s) => s,
-            Brace(s, _) => s,
-            Tilde(s) => s,
+            Literal(s) | Var(s) | Tilde(s) | Brace(s, _, _) => s,
         }
     }
 }
@@ -55,8 +69,6 @@ pub enum Op {
 pub enum Punct {
     LParen,
     RParen,
-    LBracket,
-    RBracket,
     Semicolon,
 }
 
@@ -107,11 +119,72 @@ impl Lexer {
             match c {
                 '$' => {
                     self.next_char();
-                    words.push(Var(self.read_literal()?));
+                    if let Some('{') = self.peek_char() {
+
+                        fn get_action(null: bool, c: Option<char>) -> Option<Action> {
+                            match c {
+                                Some('-') => Some(Action::UseDefault(null)),
+                                Some('=') => Some(Action::AssignDefault(null)),
+                                Some('?') => Some(Action::IndicateError(null)),
+                                Some('+') => Some(Action::UseAlternate(null)),
+                                _ => None, 
+                            }
+                        }
+
+                        self.next_char();
+                        let param = self.read_basic_literal();
+
+                        let action = match self.next_char() {
+                            Some(':') => get_action(true, self.next_char()),
+                            Some('%') => {
+                                if let Some('%') = self.peek_char() {
+                                    self.next_char();
+                                    Some(Action::RmLargestSuffix)
+                                } else {
+                                    Some(Action::RmSmallestSuffix)
+                                }
+                            }
+                            Some('#') => {
+                                if let Some('#') = self.peek_char() {
+                                    self.next_char();
+                                    Some(Action::RmLargestPrefix)
+                                } else {
+                                    Some(Action::RmSmallestPrefix)
+                                }
+                            }
+                            c => get_action(false, c),
+                        };
+
+                        if let Some(a) = action {
+                            let mut word = self.read_words()?;
+                            word.pop(); // Remove bracket at the end
+                            words.push(Brace(param, a, word));
+                        } else {
+                            words.push(Var(param));
+                        }
+                    } else {
+                        words.push(Var(self.read_basic_literal()));
+                    }
+                }
+                '}' => {
+                    words.push(Literal(self.next_char().unwrap().to_string()));
+                    break
                 }
                 '~' => {
                     self.next_char();
                     words.push(Tilde(self.read_literal()?));
+                }
+                '\'' => {
+                    self.next_char();
+                    let mut phrase = String::new();
+                    loop {
+                        match self.next_char() {
+                            Some('\'') => break,
+                            Some(c) => phrase.push(c),
+                            None => self.advance_line()?,
+                        }
+                    }
+                    words.push(Literal(phrase));
                 }
                 '"' => {
                     self.next_char();
@@ -124,6 +197,11 @@ impl Lexer {
                                 Some(c) => phrase.push(c),
                                 None => (),
                             },
+                            Some('$') => {
+                                words.push(Literal(phrase));
+                                words.push(Var(self.read_basic_literal()));
+                                phrase = String::new();
+                            }
                             Some(c) => phrase.push(c),
                             None => self.advance_line()?,
                         }
@@ -158,6 +236,25 @@ impl Lexer {
             }
         }
         Ok(phrase)
+    }
+
+    fn read_basic_literal(&mut self) -> String {
+        let mut phrase = String::new();
+        while let Some(c) = self.peek_char() {
+            if (c.is_alphanumeric() || *c == '_') && !c.is_whitespace() {
+                phrase.push(self.next_char().unwrap());
+            } else if *c == '\\' {
+                self.next_char();
+                if let Some('\n') = self.peek_char() {
+                    let _ = self.advance_line();
+                } else {
+                    break
+                }
+            } else {
+                break
+            }
+        }
+        phrase
     }
 
     // Of course, I still haven't added everything I'll need to yet
@@ -205,6 +302,7 @@ impl Lexer {
             Some(_) => {
                 match self.read_words() {
                     Ok(w) => {
+                        println!("The words I got: {:?}", w);
                         match &w[..] {
                             [Literal(s), ..] if s.ends_with('=') && s.chars().filter(|c| c.is_numeric()).count() != s.len() - 1 => {
                                 let mut iter = w.into_iter();
@@ -241,7 +339,7 @@ impl Iterator for Lexer {
 }
 
 fn is_forbidden(c: char) -> bool {
-    matches!(c, '&' | '!' | '|' | '<' | '>' | '$')
+    matches!(c, '&' | '!' | '|' | '<' | '>' | '$' | '"' | '}' )
 }
 
 // TODO: More tests

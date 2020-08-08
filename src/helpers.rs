@@ -1,9 +1,10 @@
-use std::io::{self, BufRead, BufReader, Write};
-use std::fs::{self, File, OpenOptions};
-use std::process::Stdio;
+use nix::unistd::Uid;
 use os_pipe::{dup_stderr, dup_stdin, dup_stdout, PipeReader, PipeWriter};
 use std::collections::HashMap;
-use nix::unistd::Uid;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, BufRead, BufReader, Write};
+use std::process::Stdio;
+use std::env;
 
 // My own, less nasty version of BufRead::lines().
 // Returns an Option rather Option<Result>,
@@ -40,12 +41,15 @@ pub struct Shell {
 impl Shell {
     pub fn new(file: Option<String>) -> Shell {
         let (lines, interactive): (Lines<Box<dyn BufRead>>, bool) = if let Some(filename) = file {
-            (Lines::new(Box::new(BufReader::new(fs::File::open(filename).unwrap()))), false)
+            (
+                Lines::new(Box::new(BufReader::new(fs::File::open(filename).unwrap()))),
+                false,
+            )
         } else {
             (Lines::new(Box::new(BufReader::new(io::stdin()))), true)
         };
         Shell {
-            lines, 
+            lines,
             interactive,
             vars: HashMap::new(),
         }
@@ -61,6 +65,18 @@ impl Shell {
             io::stdout().flush().unwrap();
         }
         self.lines.next()
+    }
+
+    pub fn get_var(&self, key: &str) -> Option<String> {
+        self.vars.get(key).map_or(env::var(key).ok(), |s| Some(String::from(s)))
+    }
+
+    pub fn set_var(&mut self, key: String, val: String) {
+        if env::var_os(&key).is_some() {
+            env::set_var(key, val);
+        } else {
+            self.vars.insert(key, val);
+        }
     }
 }
 
@@ -78,7 +94,6 @@ impl Iterator for Shell {
         }
         self.lines.next()
     }
-
 }
 
 // File descriptor - somewhat a misnomer now but it's nice and short.
