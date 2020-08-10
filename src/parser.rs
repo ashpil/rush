@@ -207,7 +207,8 @@ impl Parser {
         for word in expansions {
             match word {
                 Literal(s) => phrase.push_str(&s),
-                Tilde(s) => {
+                Tilde(word) => {
+                    let s = self.expand_word(word);
                     if s.is_empty() || s.starts_with('/') {
                         phrase.push_str(&env::var("HOME").unwrap());
                         phrase.push_str(&s);

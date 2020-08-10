@@ -23,7 +23,7 @@ pub enum Token {
 pub enum Expand {
     Literal(String),
     Var(String),
-    Tilde(String),
+    Tilde(Vec<Expand>),
     Brace(String, Action, Vec<Expand>),
 }
 
@@ -47,7 +47,8 @@ pub enum Action {
 impl Expand {
     pub fn get_name(self) -> String {
         match self {
-            Literal(s) | Var(s) | Tilde(s) | Brace(s, _, _) => s,
+            Literal(s) | Var(s) | Brace(s, _, _) => s,
+            Tilde(_) => panic!("you shouldn't be doing this"),
         }
     }
 }
@@ -75,6 +76,18 @@ pub enum Punct {
 // This representation makes it's functions very nice and easy,
 // but I'm not convinced that this is the most efficient/clean
 // the struct itself can be
+
+fn invalid_var(c: char) -> bool {
+    matches!(
+        c,
+        '&' | '!' | '|' | '<' | '>' | '"' | '=' | ':' | '}' | '+' | '-' | '?' | '$' | '\\'
+    ) || c.is_whitespace()
+}
+
+fn is_token_split(c: char) -> bool {
+    matches!(c, '&' | '!' | '|' | '<' | '>' | '=') || c.is_whitespace()
+}
+
 pub struct Lexer {
     shell: Rc<RefCell<Shell>>,
     line: Peekable<IntoIter<char>>,
@@ -113,26 +126,58 @@ impl Lexer {
         }
     }
 
-    fn read_words(&mut self) -> Result<Vec<Expand>, String> {
-        let mut words = Vec::new();
-        while let Some(c) = self.peek_char() {
-            match c {
-                '$' => {
+    fn read_until(
+        &mut self,
+        consume: bool,
+        keep_going: bool,
+        break_cond: Box<dyn Fn(char) -> bool>,
+    ) -> Result<Vec<Expand>, String> {
+        let mut expandables = Vec::new();
+        let mut cur_word = String::new();
+
+        let mut next = self.peek_char();
+        loop {
+            match next {
+                Some('\\') => {
+                    self.next_char();
+                    match self.next_char() {
+                        Some('\n') => self.advance_line()?,
+                        Some(c) => cur_word.push(c),
+                        None => (),
+                    }
+                }
+                Some(c) if break_cond(*c) => {
+                    // This just makes assignment easier
+                    if *c == '=' {
+                        cur_word.push(self.next_char().unwrap());
+                        expandables.push(Literal(cur_word));
+                        cur_word = String::new();
+                    } else {
+                        if consume {
+                            self.next_char();
+                        }
+                        break;
+                    }
+                }
+                Some('$') => {
+                    if !cur_word.is_empty() {
+                        expandables.push(Literal(cur_word));
+                        cur_word = String::new();
+                    }
                     self.next_char();
                     if let Some('{') = self.peek_char() {
-
                         fn get_action(null: bool, c: Option<char>) -> Option<Action> {
                             match c {
                                 Some('-') => Some(Action::UseDefault(null)),
                                 Some('=') => Some(Action::AssignDefault(null)),
                                 Some('?') => Some(Action::IndicateError(null)),
                                 Some('+') => Some(Action::UseAlternate(null)),
-                                _ => None, 
+                                _ => None,
                             }
                         }
 
                         self.next_char();
-                        let param = self.read_basic_literal();
+                        let param = self.read_raw_until(invalid_var)?;
 
                         let action = match self.next_char() {
                             Some(':') => get_action(true, self.next_char()),
@@ -152,29 +197,46 @@ impl Lexer {
                                     Some(Action::RmSmallestPrefix)
                                 }
                             }
+                            Some(' ') => return Err(String::from("bad substitution")),
                             c => get_action(false, c),
                         };
 
                         if let Some(a) = action {
-                            let mut word = self.read_words()?;
-                            word.pop(); // Remove bracket at the end
-                            words.push(Brace(param, a, word));
+                            let word = self.read_until(true, true, Box::new(|c| c == '}'))?;
+                            expandables.push(Brace(param, a, word));
                         } else {
-                            words.push(Var(param));
+                            expandables.push(Var(param));
                         }
                     } else {
-                        words.push(Var(self.read_basic_literal()));
+                        let name = self.read_raw_until(invalid_var)?;
+                        expandables.push(Var(name));
                     }
                 }
-                '}' => {
-                    words.push(Literal(self.next_char().unwrap().to_string()));
-                    break
-                }
-                '~' => {
+                Some('~') => {
+                    if !cur_word.is_empty() {
+                        expandables.push(Literal(cur_word));
+                        cur_word = String::new();
+                    }
                     self.next_char();
-                    words.push(Tilde(self.read_literal()?));
+
+                    let tilde = self.read_until(false, false, Box::new(invalid_var))?;
+                    expandables.push(Tilde(tilde));
                 }
-                '\'' => {
+                Some('"') => {
+                    if !cur_word.is_empty() {
+                        expandables.push(Literal(cur_word));
+                        cur_word = String::new();
+                    }
+                    self.next_char();
+
+                    let mut result = self.read_until(true, true, Box::new(|c| c == '"'))?;
+                    if result.is_empty() {
+                        expandables.push(Literal(String::new()));
+                    } else {
+                        expandables.append(&mut result);
+                    }
+                }
+                Some('\'') => {
                     self.next_char();
                     let mut phrase = String::new();
                     loop {
@@ -184,77 +246,47 @@ impl Lexer {
                             None => self.advance_line()?,
                         }
                     }
-                    words.push(Literal(phrase));
+                    expandables.push(Literal(phrase));
                 }
-                '"' => {
-                    self.next_char();
-                    let mut phrase = String::new();
-                    loop {
-                        match self.next_char() {
-                            Some('"') => break,
-                            Some('\\') => match self.next_char() {
-                                Some('\n') => self.advance_line()?,
-                                Some(c) => phrase.push(c),
-                                None => (),
-                            },
-                            Some('$') => {
-                                words.push(Literal(phrase));
-                                words.push(Var(self.read_basic_literal()));
-                                phrase = String::new();
-                            }
-                            Some(c) => phrase.push(c),
-                            None => self.advance_line()?,
-                        }
+                Some(_) => cur_word.push(self.next_char().unwrap()),
+                None => {
+                    if keep_going {
+                        self.advance_line()?;
+                    } else {
+                        break;
                     }
-                    words.push(Literal(phrase));
                 }
-                c if is_forbidden(*c) || c.is_whitespace() => break,
-                _ => words.push(Literal(self.read_literal()?)),
             }
+            next = self.peek_char();
         }
-        Ok(words)
+        if !cur_word.is_empty() {
+            expandables.push(Literal(cur_word));
+        }
+        Ok(expandables)
     }
 
-    fn read_literal(&mut self) -> Result<String, String> {
-        let mut phrase = String::new();
+    // You can accomplish this same thing with just the function above and some matching/unwrapping,
+    // but I think this is cleaner
+    fn read_raw_until<F>(&mut self, break_cond: F) -> Result<String, String>
+    where
+        F: Fn(char) -> bool,
+    {
+        let mut word = String::new();
         while let Some(c) = self.peek_char() {
             match c {
                 '\\' => {
                     self.next_char();
                     match self.next_char() {
                         Some('\n') => self.advance_line()?,
-                        Some(c) => phrase.push(c),
-                        None => break,
+                        Some(c) => word.push(c),
+                        None => (),
                     }
                 }
-                '=' => {
-                    phrase.push(self.next_char().unwrap());
-                    break
-                }
-                c if is_forbidden(*c) || c.is_whitespace() => break,
-                _ => phrase.push(self.next_char().unwrap()),
+                c if break_cond(*c) => break,
+                _ => word.push(self.next_char().unwrap()),
             }
         }
-        Ok(phrase)
-    }
-
-    fn read_basic_literal(&mut self) -> String {
-        let mut phrase = String::new();
-        while let Some(c) = self.peek_char() {
-            if (c.is_alphanumeric() || *c == '_') && !c.is_whitespace() {
-                phrase.push(self.next_char().unwrap());
-            } else if *c == '\\' {
-                self.next_char();
-                if let Some('\n') = self.peek_char() {
-                    let _ = self.advance_line();
-                } else {
-                    break
-                }
-            } else {
-                break
-            }
-        }
-        phrase
+        Ok(word)
     }
 
     // Of course, I still haven't added everything I'll need to yet
@@ -299,33 +331,34 @@ impl Lexer {
                 self.next_char();
                 Some(Token::Punct(Punct::RParen))
             }
-            Some(_) => {
-                match self.read_words() {
-                    Ok(w) => {
-                        println!("The words I got: {:?}", w);
-                        match &w[..] {
-                            [Literal(s), ..] if s.ends_with('=') && s.chars().filter(|c| c.is_numeric()).count() != s.len() - 1 => {
-                                let mut iter = w.into_iter();
-                                let mut name = iter.next().unwrap().get_name();
-                                name.pop();
-                                Some(Token::Assign(name, iter.collect()))
-                            }
-                            [Literal(s)] => {
-                                if let Ok(num) = s.parse::<u32>() {
-                                    Some(Token::Integer(num))
-                                } else {
-                                    Some(Token::Word(w))
-                                }
-                            }
-                            _ => Some(Token::Word(w)),
+            Some(_) => match self.read_until(false, false, Box::new(is_token_split)) {
+                Ok(w) => {
+                    println!("The words I got: {:?}", w);
+                    match &w[..] {
+                        [Literal(s), ..]
+                            if s.ends_with('=')
+                                && s.chars().filter(|c| c.is_numeric()).count() != s.len() - 1 =>
+                        {
+                            let mut iter = w.into_iter();
+                            let mut name = iter.next().unwrap().get_name();
+                            name.pop();
+                            Some(Token::Assign(name, iter.collect()))
                         }
-                    }
-                    Err(e) => {
-                        eprintln!("rush: {}", e);
-                        None
+                        [Literal(s)] => {
+                            if let Ok(num) = s.parse::<u32>() {
+                                Some(Token::Integer(num))
+                            } else {
+                                Some(Token::Word(w))
+                            }
+                        }
+                        _ => Some(Token::Word(w)),
                     }
                 }
-            }
+                Err(e) => {
+                    eprintln!("rush: {}", e);
+                    None
+                }
+            },
             None => None,
         }
     }
@@ -338,14 +371,10 @@ impl Iterator for Lexer {
     }
 }
 
-fn is_forbidden(c: char) -> bool {
-    matches!(c, '&' | '!' | '|' | '<' | '>' | '$' | '"' | '}' )
-}
-
 // TODO: More tests
 #[cfg(test)]
 mod lexer_tests {
-    use super::{Lexer, Op, Token};
+    use super::{Expand::*, Lexer, Op, Token::*};
     use crate::helpers::Shell;
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -355,11 +384,11 @@ mod lexer_tests {
         let shell = Rc::new(RefCell::new(Shell::new(None)));
         let mut lexer = Lexer::new("exa -1 | grep cargo", Rc::clone(&shell));
         let expected = [
-            Token::Word("exa".to_string()),
-            Token::Word("-1".to_string()),
-            Token::Op(Op::Pipe),
-            Token::Word("grep".to_string()),
-            Token::Word("cargo".to_string()),
+            Word(vec![Literal(String::from("exa"))]),
+            Word(vec![Literal(String::from("-1"))]),
+            Op(Op::Pipe),
+            Word(vec![Literal(String::from("grep"))]),
+            Word(vec![Literal(String::from("cargo"))]),
         ];
         for token in &expected {
             assert_eq!(*token, lexer.next().unwrap())
