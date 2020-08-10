@@ -25,11 +25,11 @@ I know that the name is overused, but it's too good to pass up.
       - [ ] `exec`
       - [ ] etc
 - [ ] Expansions
-   - [X] Tilde expansion
+   - [X] Tilde expansion `ls ~`
    - [ ] Parameter expansion
-      - [X] Basic expansion
-      - [ ] String length
-      - [ ] Suffix/prefix removal
+      - [X] Basic expansion `echo ${var:-other}`
+      - [ ] String length `echo ${#var}`
+      - [ ] Suffix/prefix removal `echo ${var%%pattern}`
    - [ ] Command substitution
    - [ ] Arithmetic expansion
 - [X] Variables
