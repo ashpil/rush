@@ -374,7 +374,7 @@ impl Iterator for Lexer {
 // TODO: More tests
 #[cfg(test)]
 mod lexer_tests {
-    use super::{Lexer, Op, Token::*, Expand::*};
+    use super::{Expand::*, Lexer, Op, Token::*};
     use crate::helpers::Shell;
     use std::cell::RefCell;
     use std::rc::Rc;
