@@ -88,14 +88,6 @@ fn is_token_split(c: char) -> bool {
     matches!(c, '&' | '!' | '|' | '<' | '>' | '=') || c.is_whitespace()
 }
 
-fn is_bracket(c: char) -> bool {
-    c == '}'
-}
-
-fn is_quote(c: char) -> bool {
-    c == '"'
-}
-
 pub struct Lexer {
     shell: Rc<RefCell<Shell>>,
     line: Peekable<IntoIter<char>>,
@@ -134,10 +126,12 @@ impl Lexer {
         }
     }
 
-    fn read_until<F>(&mut self, consume: bool, keep_going: bool, break_cond: F) -> Result<Vec<Expand>, String>
-    where
-        F: Fn(char) -> bool,
-    {
+    fn read_until(
+        &mut self,
+        consume: bool,
+        keep_going: bool,
+        break_cond: Box<dyn Fn(char) -> bool>,
+    ) -> Result<Vec<Expand>, String> {
         let mut expandables = Vec::new();
         let mut cur_word = String::new();
 
@@ -208,7 +202,7 @@ impl Lexer {
                         };
 
                         if let Some(a) = action {
-                            let word = self.read_until(true, true, is_bracket)?;
+                            let word = self.read_until(true, true, Box::new(|c| c == '}'))?;
                             expandables.push(Brace(param, a, word));
                         } else {
                             expandables.push(Var(param));
@@ -225,7 +219,7 @@ impl Lexer {
                     }
                     self.next_char();
 
-                    let tilde = self.read_until(false, false, invalid_var)?;
+                    let tilde = self.read_until(false, false, Box::new(invalid_var))?;
                     expandables.push(Tilde(tilde));
                 }
                 Some('"') => {
@@ -235,7 +229,7 @@ impl Lexer {
                     }
                     self.next_char();
 
-                    let mut result = self.read_until(true, true, is_quote)?;
+                    let mut result = self.read_until(true, true, Box::new(|c| c == '"'))?;
                     if result.is_empty() {
                         expandables.push(Literal(String::new()));
                     } else {
@@ -259,9 +253,9 @@ impl Lexer {
                     if keep_going {
                         self.advance_line()?;
                     } else {
-                        break
+                        break;
                     }
-                },
+                }
             }
             next = self.peek_char();
         }
@@ -277,7 +271,6 @@ impl Lexer {
     where
         F: Fn(char) -> bool,
     {
-
         let mut word = String::new();
         while let Some(c) = self.peek_char() {
             match c {
@@ -338,7 +331,7 @@ impl Lexer {
                 self.next_char();
                 Some(Token::Punct(Punct::RParen))
             }
-            Some(_) => match self.read_until(false, false, is_token_split) {
+            Some(_) => match self.read_until(false, false, Box::new(is_token_split)) {
                 Ok(w) => {
                     println!("The words I got: {:?}", w);
                     match &w[..] {
@@ -381,7 +374,7 @@ impl Iterator for Lexer {
 // TODO: More tests
 #[cfg(test)]
 mod lexer_tests {
-    use super::{Lexer, Op, Token};
+    use super::{Lexer, Op, Token::*, Expand::*};
     use crate::helpers::Shell;
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -391,11 +384,11 @@ mod lexer_tests {
         let shell = Rc::new(RefCell::new(Shell::new(None)));
         let mut lexer = Lexer::new("exa -1 | grep cargo", Rc::clone(&shell));
         let expected = [
-            Token::Word("exa".to_string()),
-            Token::Word("-1".to_string()),
-            Token::Op(Op::Pipe),
-            Token::Word("grep".to_string()),
-            Token::Word("cargo".to_string()),
+            Word(vec![Literal(String::from("exa"))]),
+            Word(vec![Literal(String::from("-1"))]),
+            Op(Op::Pipe),
+            Word(vec![Literal(String::from("grep"))]),
+            Word(vec![Literal(String::from("cargo"))]),
         ];
         for token in &expected {
             assert_eq!(*token, lexer.next().unwrap())
