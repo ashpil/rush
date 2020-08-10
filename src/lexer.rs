@@ -85,7 +85,7 @@ fn invalid_var(c: char) -> bool {
 }
 
 fn is_token_split(c: char) -> bool {
-    matches!(c, '&' | '!' | '|' | '<' | '>') || c.is_whitespace()
+    matches!(c, '&' | '!' | '|' | '<' | '>' | '=') || c.is_whitespace()
 }
 
 fn is_bracket(c: char) -> bool {
@@ -153,10 +153,17 @@ impl Lexer {
                     }
                 }
                 Some(c) if break_cond(*c) => {
-                    if consume {
-                        self.next_char();
+                    // This just makes assignment easier
+                    if *c == '=' {
+                        cur_word.push(self.next_char().unwrap());
+                        expandables.push(Literal(cur_word));
+                        cur_word = String::new();
+                    } else {
+                        if consume {
+                            self.next_char();
+                        }
+                        break;
                     }
-                    break;
                 }
                 Some('$') => {
                     if !cur_word.is_empty() {
@@ -176,11 +183,7 @@ impl Lexer {
                         }
 
                         self.next_char();
-                        let param = if let Some(v) = self.read_until(false, false, invalid_var)?.pop() {
-                            Ok(v.get_name())
-                        } else {
-                            Err(String::from("bad substituion"))
-                        }?;
+                        let param = self.read_raw_until(invalid_var)?;
 
                         let action = match self.next_char() {
                             Some(':') => get_action(true, self.next_char()),
@@ -211,11 +214,7 @@ impl Lexer {
                             expandables.push(Var(param));
                         }
                     } else {
-                        let name = if let Some(v) = self.read_until(false, false, invalid_var)?.pop() {
-                            Ok(v.get_name())
-                        } else {
-                            Err(String::from("bad variable"))
-                        }?;
+                        let name = self.read_raw_until(invalid_var)?;
                         expandables.push(Var(name));
                     }
                 }
@@ -270,6 +269,31 @@ impl Lexer {
             expandables.push(Literal(cur_word));
         }
         Ok(expandables)
+    }
+
+    // You can accomplish this same thing with just the function above,
+    // but I think this is cleaner
+    fn read_raw_until<F>(&mut self, break_cond: F) -> Result<String, String>
+    where
+        F: Fn(char) -> bool,
+    {
+
+        let mut word = String::new();
+        while let Some(c) = self.peek_char() {
+            match c {
+                '\\' => {
+                    self.next_char();
+                    match self.next_char() {
+                        Some('\n') => self.advance_line()?,
+                        Some(c) => word.push(c),
+                        None => (),
+                    }
+                }
+                c if break_cond(*c) => break,
+                _ => word.push(self.next_char().unwrap()),
+            }
+        }
+        Ok(word)
     }
 
     // Of course, I still haven't added everything I'll need to yet
