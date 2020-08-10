@@ -27,12 +27,14 @@ I know that the name is overused, but it's too good to pass up.
 - [ ] Expansions
    - [X] Tilde expansion
    - [ ] Parameter expansion
+      - [X] Basic expansion
+      - [ ] String length
+      - [ ] Suffix/prefix removal
    - [ ] Command substitution
    - [ ] Arithmetic expansion
 - [X] Variables
-- [ ] Quotes
-   - [X] Quote recognition 
-   - [ ] There's probably more, right?
+- [X] Quotes
+- [ ] Functions
 - [ ] Control flow `if` `for` `while` `case` etc
 - [ ] Expand this to-do list
 
