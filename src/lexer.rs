@@ -265,7 +265,7 @@ impl Lexer {
         Ok(expandables)
     }
 
-    // You can accomplish this same thing with just the function above,
+    // You can accomplish this same thing with just the function above and some matching/unwrapping,
     // but I think this is cleaner
     fn read_raw_until<F>(&mut self, break_cond: F) -> Result<String, String>
     where
