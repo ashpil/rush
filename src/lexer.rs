@@ -208,7 +208,14 @@ impl Lexer {
                             expandables.push(Var(param));
                         }
                     } else {
-                        let name = self.read_raw_until(invalid_var)?;
+                        // '$$' command doesn't play nicely with the reading here,
+                        // but it's so simple I can just check for it here.
+                        let name = if let Some('$') = self.peek_char() {
+                            self.next_char();
+                            String::from("$")
+                        } else {
+                            self.read_raw_until(invalid_var)?
+                        };
                         expandables.push(Var(name));
                     }
                 }

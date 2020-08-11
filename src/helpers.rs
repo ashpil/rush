@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
-use std::process::Stdio;
+use std::process::{Stdio, self};
 
 // My own, less nasty version of BufRead::lines().
 // Returns an Option rather Option<Result>,
@@ -36,12 +36,13 @@ pub struct Shell {
     lines: Lines<Box<dyn BufRead>>,
     interactive: bool,
     positional: Vec<String>,
+    name: String,
     pub vars: HashMap<String, String>,
 }
 
 impl Shell {
     pub fn new(file: Option<String>) -> Shell {
-        let (lines, interactive, zero): (Lines<Box<dyn BufRead>>, bool, String) =
+        let (lines, interactive, name): (Lines<Box<dyn BufRead>>, bool, String) =
             if let Some(filename) = file {
                 (
                     Lines::new(Box::new(BufReader::new(fs::File::open(&filename).unwrap()))),
@@ -58,18 +59,18 @@ impl Shell {
         Shell {
             lines,
             interactive,
-            positional: vec![zero],
+            positional: Vec::new(),
+            name,
             vars: HashMap::new(),
         }
     }
 
     pub fn get_pos(&self, n: u32) -> Option<&String> {
-        self.positional.get(n as usize)
+        self.positional.get((n - 1) as usize)
     }
 
-    pub fn set_pos(&mut self, mut pos: Vec<String>) {
-        self.positional.truncate(1);
-        self.positional.append(&mut pos);
+    pub fn set_pos(&mut self, pos: Vec<String>) {
+        self.positional = pos;
     }
 
     pub fn is_interactive(&self) -> bool {
@@ -84,11 +85,23 @@ impl Shell {
         self.lines.next()
     }
 
+    // Not super satisfied with this as it is returning a String when it could be a 
+    // reference, but this also allows handling stuff like $@ right here, as that would need to be 
+    // stitched together here and thus it would own the value.
+    // Also, env:: calls in Rust seem to return ownership rather than references, which is
+    // nasty.
     pub fn get_var(&self, key: &str) -> Option<String> {
         if let Ok(num) = key.parse::<u32>() {
-            self.get_pos(num).map(|s| String::from(s))
+            if num == 0 {
+                Some(self.name.clone())
+            } else {
+                self.get_pos(num).map(|s| String::from(s))
+            }
         } else {
             match key {
+                "@" | "*" => Some(self.positional.join(" ")), // these are technically more complicated but it works for now
+                "#" => Some(self.positional.len().to_string()), 
+                "$" => Some(process::id().to_string()), 
                 _ => self
                     .vars
                     .get(key)
