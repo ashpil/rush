@@ -1,8 +1,9 @@
 use crate::helpers::{Fd, Shell};
 use crate::lexer::Token::*;
 use crate::lexer::{
+    Action,
     Expand::{self, *},
-    Lexer, Op, Action,
+    Lexer, Op,
 };
 use nix::unistd::User;
 use os_pipe::pipe;
@@ -11,8 +12,8 @@ use std::collections::HashMap;
 use std::env;
 use std::io::Write;
 use std::iter::Peekable;
-use std::rc::Rc;
 use std::process::exit;
+use std::rc::Rc;
 
 #[derive(Debug, PartialEq)]
 pub enum Cmd {
@@ -228,11 +229,10 @@ impl Parser {
                 }
                 Var(s) => {
                     phrase.push_str(
-                        self.shell
+                        &self.shell
                             .borrow()
-                            .vars
-                            .get(&s)
-                            .unwrap_or(&env::var(s).unwrap_or_default()),
+                            .get_var(&s)
+                            .unwrap_or_default()
                     );
                 }
                 Brace(key, action, word) => {
@@ -299,10 +299,10 @@ impl Parser {
                             }
                         }
                         Action::RmSmallestSuffix => todo!(),
-                        Action::RmLargestSuffix => todo!(),  
-                        Action::RmSmallestPrefix => todo!(),  
-                        Action::RmLargestPrefix => todo!(),  
-                        Action::StringLength => todo!(),  
+                        Action::RmLargestSuffix => todo!(),
+                        Action::RmSmallestPrefix => todo!(),
+                        Action::RmLargestPrefix => todo!(),
+                        Action::StringLength => todo!(),
                     }
                 }
             }

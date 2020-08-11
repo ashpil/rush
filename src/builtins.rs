@@ -1,5 +1,8 @@
 use std::process::exit as exit_program;
 use std::env;
+use std::rc::Rc;
+use std::cell::RefCell;
+use crate::helpers::Shell;
 
 // Unless specified otherwise, if provided multiple arguments while only
 // accepting one, these use the first argument. Dash does this as well.  
@@ -24,4 +27,10 @@ pub fn cd(args: Vec<String>) -> bool {
     } else {
         true
     }
+}
+
+// Set very versetaile normally, this is just positional parameters for now
+pub fn set(args: Vec<String>, shell: Rc<RefCell<Shell>>) -> bool {
+    shell.borrow_mut().set_pos(args);
+    true
 }

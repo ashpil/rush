@@ -1,10 +1,10 @@
 use nix::unistd::Uid;
 use os_pipe::{dup_stderr, dup_stdin, dup_stdout, PipeReader, PipeWriter};
 use std::collections::HashMap;
+use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::Stdio;
-use std::env;
 
 // My own, less nasty version of BufRead::lines().
 // Returns an Option rather Option<Result>,
@@ -35,24 +35,41 @@ impl<B: BufRead> Iterator for Lines<B> {
 pub struct Shell {
     lines: Lines<Box<dyn BufRead>>,
     interactive: bool,
+    positional: Vec<String>,
     pub vars: HashMap<String, String>,
 }
 
 impl Shell {
     pub fn new(file: Option<String>) -> Shell {
-        let (lines, interactive): (Lines<Box<dyn BufRead>>, bool) = if let Some(filename) = file {
-            (
-                Lines::new(Box::new(BufReader::new(fs::File::open(filename).unwrap()))),
-                false,
-            )
-        } else {
-            (Lines::new(Box::new(BufReader::new(io::stdin()))), true)
-        };
+        let (lines, interactive, zero): (Lines<Box<dyn BufRead>>, bool, String) =
+            if let Some(filename) = file {
+                (
+                    Lines::new(Box::new(BufReader::new(fs::File::open(&filename).unwrap()))),
+                    false,
+                    filename,
+                )
+            } else {
+                (
+                    Lines::new(Box::new(BufReader::new(io::stdin()))),
+                    true,
+                    String::from("rush"),
+                )
+            };
         Shell {
             lines,
             interactive,
+            positional: vec![zero],
             vars: HashMap::new(),
         }
+    }
+
+    pub fn get_pos(&self, n: u32) -> Option<&String> {
+        self.positional.get(n as usize)
+    }
+
+    pub fn set_pos(&mut self, mut pos: Vec<String>) {
+        self.positional.truncate(1);
+        self.positional.append(&mut pos);
     }
 
     pub fn is_interactive(&self) -> bool {
@@ -68,7 +85,16 @@ impl Shell {
     }
 
     pub fn get_var(&self, key: &str) -> Option<String> {
-        self.vars.get(key).map_or(env::var(key).ok(), |s| Some(String::from(s)))
+        if let Ok(num) = key.parse::<u32>() {
+            self.get_pos(num).map(|s| String::from(s))
+        } else {
+            match key {
+                _ => self
+                    .vars
+                    .get(key)
+                    .map_or(env::var(key).ok(), |s| Some(String::from(s))),
+            }
+        }
     }
 
     pub fn set_var(&mut self, key: String, val: String) {

@@ -1,6 +1,6 @@
 use rush::lexer::Lexer;
 use rush::parser::Parser;
-use rush::runner::execute;
+use rush::runner::Runner;
 use rush::helpers::Shell;
 use std::env;
 use std::cell::RefCell;
@@ -11,6 +11,7 @@ fn main() {
     args.next();
 
     let shell = Rc::new(RefCell::new(Shell::new(args.last())));
+    let runner = Runner::new(Rc::clone(&shell));
 
     loop {
         let input = shell.borrow_mut().next();
@@ -22,7 +23,7 @@ fn main() {
                     #[cfg(debug_assertions)] // Only include when not built with `--release` flag
                     println!("\u{001b}[34m{:#?}\u{001b}[0m", command);
 
-                    execute(command);
+                    runner.execute(command);
                 }
                 Err(e) => {
                     eprintln!("{}", e);
