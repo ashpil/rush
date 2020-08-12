@@ -34,6 +34,7 @@ I know that the name is overused, but it's too good to pass up.
    - [ ] Arithmetic expansion
 - [X] Variables
 - [X] Quotes
+- [ ] IFS
 - [ ] Functions
 - [ ] Control flow `if` `for` `while` `case` etc
 - [ ] Expand this to-do list
