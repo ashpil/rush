@@ -30,7 +30,7 @@ I know that the name is overused, but it's too good to pass up.
       - [X] Basic expansion `echo ${var:-other}`
       - [ ] String length `echo ${#var}`
       - [ ] Suffix/prefix removal `echo ${var%%pattern}`
-   - [ ] Command substitution
+   - [X] Command substitution
    - [ ] Arithmetic expansion
 - [X] Variables
 - [X] Quotes

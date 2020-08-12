@@ -25,6 +25,7 @@ pub enum Expand {
     Var(String),
     Tilde(Vec<Expand>),
     Brace(String, Action, Vec<Expand>),
+    Sub(Vec<Expand>),
 }
 
 // What the brace does expansion does:
@@ -48,7 +49,7 @@ impl Expand {
     pub fn get_name(self) -> String {
         match self {
             Literal(s) | Var(s) | Brace(s, _, _) => s,
-            Tilde(_) => panic!("you shouldn't be doing this"),
+            Tilde(_) | Sub(_) => panic!("you shouldn't be doing this"),
         }
     }
 }
@@ -80,7 +81,7 @@ pub enum Punct {
 fn invalid_var(c: char) -> bool {
     matches!(
         c,
-        '&' | '!' | '|' | '<' | '>' | '"' | '=' | ':' | '}' | '+' | '-' | '?' | '$' | '\\'
+        '&' | '!' | '|' | '<' | '>' | '"' | '=' | ':' | '}' | '+' | '-' | '?' | '$' | '\\' | ')'
     ) || c.is_whitespace()
 }
 
@@ -130,6 +131,7 @@ impl Lexer {
         &mut self,
         consume: bool,
         keep_going: bool,
+        split_on_space: bool,
         break_cond: Box<dyn Fn(char) -> bool>,
     ) -> Result<Vec<Expand>, String> {
         let mut expandables = Vec::new();
@@ -159,65 +161,83 @@ impl Lexer {
                         break;
                     }
                 }
+                Some(' ') if split_on_space => {
+                    self.next_char();
+                    if !cur_word.is_empty() {
+                        expandables.push(Literal(cur_word));
+                        cur_word = String::new();
+                    }
+                }
                 Some('$') => {
                     if !cur_word.is_empty() {
                         expandables.push(Literal(cur_word));
                         cur_word = String::new();
                     }
                     self.next_char();
-                    if let Some('{') = self.peek_char() {
-                        fn get_action(null: bool, c: Option<char>) -> Option<Action> {
-                            match c {
-                                Some('-') => Some(Action::UseDefault(null)),
-                                Some('=') => Some(Action::AssignDefault(null)),
-                                Some('?') => Some(Action::IndicateError(null)),
-                                Some('+') => Some(Action::UseAlternate(null)),
-                                _ => None,
-                            }
-                        }
-
-                        self.next_char();
-                        let param = self.read_raw_until(invalid_var)?;
-
-                        let action = match self.next_char() {
-                            Some(':') => get_action(true, self.next_char()),
-                            Some('%') => {
-                                if let Some('%') = self.peek_char() {
-                                    self.next_char();
-                                    Some(Action::RmLargestSuffix)
-                                } else {
-                                    Some(Action::RmSmallestSuffix)
+                    match self.peek_char() {
+                        Some('{') => {
+                            fn get_action(null: bool, c: Option<char>) -> Option<Action> {
+                                match c {
+                                    Some('-') => Some(Action::UseDefault(null)),
+                                    Some('=') => Some(Action::AssignDefault(null)),
+                                    Some('?') => Some(Action::IndicateError(null)),
+                                    Some('+') => Some(Action::UseAlternate(null)),
+                                    _ => None,
                                 }
                             }
-                            Some('#') => {
-                                if let Some('#') = self.peek_char() {
-                                    self.next_char();
-                                    Some(Action::RmLargestPrefix)
-                                } else {
-                                    Some(Action::RmSmallestPrefix)
-                                }
-                            }
-                            Some(' ') => return Err(String::from("bad substitution")),
-                            c => get_action(false, c),
-                        };
 
-                        if let Some(a) = action {
-                            let word = self.read_until(true, true, Box::new(|c| c == '}'))?;
-                            expandables.push(Brace(param, a, word));
-                        } else {
-                            expandables.push(Var(param));
-                        }
-                    } else {
-                        // '$$' command doesn't play nicely with the reading here,
-                        // but it's so simple I can just check for it here.
-                        let name = if let Some('$') = self.peek_char() {
                             self.next_char();
-                            String::from("$")
-                        } else {
-                            self.read_raw_until(invalid_var)?
-                        };
-                        expandables.push(Var(name));
+                            let param = self.read_raw_until(invalid_var)?;
+
+                            let action = match self.next_char() {
+                                Some(':') => get_action(true, self.next_char()),
+                                Some('%') => {
+                                    if let Some('%') = self.peek_char() {
+                                        self.next_char();
+                                        Some(Action::RmLargestSuffix)
+                                    } else {
+                                        Some(Action::RmSmallestSuffix)
+                                    }
+                                }
+                                Some('#') => {
+                                    if let Some('#') = self.peek_char() {
+                                        self.next_char();
+                                        Some(Action::RmLargestPrefix)
+                                    } else {
+                                        Some(Action::RmSmallestPrefix)
+                                    }
+                                }
+                                Some(' ') => return Err(String::from("bad substitution")),
+                                c => get_action(false, c),
+                            };
+
+                            if let Some(a) = action {
+                                let word = self.read_until(true, true, false, Box::new(|c| c == '}'))?;
+                                expandables.push(Brace(param, a, word));
+                            } else {
+                                expandables.push(Var(param));
+                            }
+                        }
+                        Some('(') => {
+                            self.next_char();
+                            expandables.push(Sub(self.read_until(true, true, true, Box::new(|c| c == ')'))?));
+                        }
+                        Some('$') => {
+                            // '$$' command doesn't play nicely with the reading here,
+                            // but it's so simple I can just check for it here.
+                            self.next_char();
+                            expandables.push(Var(String::from("$")));
+                        }
+                        _ => {
+                            expandables.push(Var(self.read_raw_until(invalid_var)?));
+                        }
                     }
+                }
+                Some('`') => {
+                    // How often are backticks actually used for subshells?
+                    // I really don't want to have to implement nested backtick subshells...
+                    self.next_char();
+                    expandables.push(Sub(self.read_until(true, true, true, Box::new(|c| c == '`'))?));
                 }
                 Some('~') => {
                     if !cur_word.is_empty() {
@@ -226,7 +246,7 @@ impl Lexer {
                     }
                     self.next_char();
 
-                    let tilde = self.read_until(false, false, Box::new(invalid_var))?;
+                    let tilde = self.read_until(false, false, false, Box::new(invalid_var))?;
                     expandables.push(Tilde(tilde));
                 }
                 Some('"') => {
@@ -236,7 +256,7 @@ impl Lexer {
                     }
                     self.next_char();
 
-                    let mut result = self.read_until(true, true, Box::new(|c| c == '"'))?;
+                    let mut result = self.read_until(true, true, false, Box::new(|c| c == '"'))?;
                     if result.is_empty() {
                         expandables.push(Literal(String::new()));
                     } else {
@@ -338,7 +358,7 @@ impl Lexer {
                 self.next_char();
                 Some(Token::Punct(Punct::RParen))
             }
-            Some(_) => match self.read_until(false, false, Box::new(is_token_split)) {
+            Some(_) => match self.read_until(false, false, false, Box::new(is_token_split)) {
                 Ok(w) => {
                     println!("The words I got: {:?}", w);
                     match &w[..] {

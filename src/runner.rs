@@ -5,6 +5,7 @@ use os_pipe::{pipe, PipeReader, PipeWriter};
 use std::process::Command;
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::io::Read;
 
 // This is useful to keep track of what each command does with its STDs
 #[derive(Debug)]
@@ -47,8 +48,17 @@ impl Runner {
         }
     }
 
-    pub fn execute(&self, ast: Cmd) {
-        self.visit(ast, CmdMeta::inherit());
+    pub fn execute(&self, ast: Cmd, capture: bool) -> Option<String> {
+        if capture {
+            let (mut reader, writer) = pipe().unwrap();
+            self.visit(ast, CmdMeta::pipe_out(writer));
+            let mut output = String::new();
+            reader.read_to_string(&mut output).unwrap();
+            Some(output)
+        } else {
+            self.visit(ast, CmdMeta::inherit());
+            None
+        }
     }
 
     // Probably not ideal for all of these to return a bool,
@@ -128,7 +138,7 @@ impl Runner {
                 match cmd.status() {
                     Ok(child) => child.success(),
                     Err(e) => {
-                        eprintln!("rush: {}", e);
+                        eprintln!("rush: {}: {}", simple.cmd, e);
                         false
                     }
                 }

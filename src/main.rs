@@ -23,7 +23,7 @@ fn main() {
                     #[cfg(debug_assertions)] // Only include when not built with `--release` flag
                     println!("\u{001b}[34m{:#?}\u{001b}[0m", command);
 
-                    runner.execute(command);
+                    runner.execute(command, false);
                 }
                 Err(e) => {
                     eprintln!("{}", e);

@@ -1,9 +1,9 @@
 use crate::helpers::{Fd, Shell};
-use crate::lexer::Token::*;
+use crate::lexer::Token::{self, *};
 use crate::lexer::{
     Action,
     Expand::{self, *},
-    Lexer, Op,
+    Op,
 };
 use nix::unistd::User;
 use os_pipe::pipe;
@@ -14,6 +14,7 @@ use std::io::Write;
 use std::iter::Peekable;
 use std::process::exit;
 use std::rc::Rc;
+use crate::runner::Runner;
 
 #[derive(Debug, PartialEq)]
 pub enum Cmd {
@@ -83,13 +84,19 @@ impl Simple {
 }
 
 // The parser struct. Keeps track of current location in a peekable iter of tokens
-pub struct Parser {
+pub struct Parser<I> 
+where
+    I: Iterator<Item = Token>
+{
     shell: Rc<RefCell<Shell>>,
-    lexer: Peekable<Lexer>,
+    lexer: Peekable<I>,
 }
 
-impl Parser {
-    pub fn new(lexer: Lexer, shell: Rc<RefCell<Shell>>) -> Parser {
+impl<I> Parser<I>
+    where
+        I: Iterator<Item = Token>
+    {
+    pub fn new(lexer: I, shell: Rc<RefCell<Shell>>) -> Parser<I> {
         Parser {
             shell,
             lexer: lexer.peekable(),
@@ -303,6 +310,21 @@ impl Parser {
                         Action::RmSmallestPrefix => todo!(),
                         Action::RmLargestPrefix => todo!(),
                         Action::StringLength => todo!(),
+                    }
+                }
+                Sub(e) => {
+                    let mut parser = Parser::new(vec!(Word(e)).into_iter(), Rc::clone(&self.shell));
+
+                    // This setup here allows me to do a surprisingly easy subshell.
+                    // Though subshells typically seem to inherit everything I'm keeping in my
+                    // `shell` variable at the moment?
+                    if let Ok(command) = parser.get() {
+                        #[cfg(debug_assertions)] // Only include when not built with `--release` flag
+                        println!("\u{001b}[33m{:#?}\u{001b}[0m", command);
+
+                        let mut output = Runner::new(Rc::clone(&parser.shell)).execute(command, true).unwrap();
+                        output = output.replace(|c: char| c.is_whitespace(), " ");
+                        phrase.push_str(output.trim());
                     }
                 }
             }
