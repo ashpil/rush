@@ -394,6 +394,7 @@ mod parser_tests {
     use crate::helpers::Shell;
     use crate::lexer::Lexer;
     use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::rc::Rc;
 
     #[test]
@@ -453,6 +454,29 @@ mod parser_tests {
             vec![String::from("-ltr")],
             Io::new(),
         ));
+        assert_eq!(expected, parser.get().unwrap())
+    }
+
+    #[test]
+    fn test_cmd_with_equals_in_args() {
+        let shell = Rc::new(RefCell::new(Shell::new(None)));
+        let lexer = Lexer::new("LANG=en alias foo='bar' foo boo=\"far\"", Rc::clone(&shell));
+        let mut parser = Parser::new(lexer, Rc::clone(&shell));
+        let expected = Cmd::Simple({
+            let mut s = Simple::new(
+                String::from("alias"),
+                vec![
+                    "foo=bar".to_string(),
+                    "foo".to_string(),
+                    "boo=far".to_string(),
+                ],
+                Io::new(),
+            );
+            let mut env = HashMap::new();
+            env.insert("LANG".to_string(), "en".to_string());
+            s.add_env(env);
+            s
+        });
         assert_eq!(expected, parser.get().unwrap())
     }
 }
