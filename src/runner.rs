@@ -180,6 +180,7 @@ impl Runner {
             "exit" => builtins::exit(simple.args),
             "cd" => builtins::cd(simple.args),
             "set" => builtins::set(simple.args, &self.shell),
+            "unalias" => builtins::unalias(&mut self.shell.borrow_mut().aliases, simple.args),
 
             command => {
                 let mut cmd = Command::new(command);

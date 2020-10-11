@@ -109,3 +109,52 @@ fn exit_prints_nothing() -> Result<(), Box<dyn std::error::Error>> {
     test_io("exit", "$> ")?.success().code(0);
     Ok(())
 }
+
+#[test]
+fn unalias_removes_alias() -> Result<(), Box<dyn std::error::Error>> {
+    test_io(
+        "alias foo='echo' bar='oche'
+alias
+unalias foo
+alias
+unalias bar
+foo foo
+",
+        "$> $> alias bar='oche'
+alias foo='echo'
+$> $> alias bar='oche'
+$> $> $> 
+",
+    )?
+    .stderr(
+        "rush: foo: No such file or directory (os error 2)
+",
+    )
+    .success()
+    .code(0);
+    Ok(())
+}
+
+#[test]
+fn unalias_dash_a_removes_all_aliases() -> Result<(), Box<dyn std::error::Error>> {
+    test_io(
+        "alias foo='echo' bar='oche'
+alias
+unalias -a
+alias
+alias foo='echo' bar='oche'
+alias
+unalias -a asdf
+alias
+",
+        "$> $> alias bar='oche'
+alias foo='echo'
+$> $> $> $> alias bar='oche'
+alias foo='echo'
+$> $> $> 
+",
+    )?
+    .success()
+    .code(0);
+    Ok(())
+}
