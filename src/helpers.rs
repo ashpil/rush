@@ -38,6 +38,7 @@ pub struct Shell {
     positional: Vec<String>,
     name: String,
     pub vars: HashMap<String, String>,
+    pub aliases: HashMap<String, String>,
 }
 
 impl Shell {
@@ -62,6 +63,7 @@ impl Shell {
             positional: Vec::new(),
             name,
             vars: HashMap::new(),
+            aliases: HashMap::new(),
         }
     }
 

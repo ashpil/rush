@@ -24,6 +24,60 @@ where
 }
 
 #[test]
+fn alias_defines_and_prints_aliases() -> Result<(), Box<dyn std::error::Error>> {
+    test_io(
+        "alias foo=echo
+foo bar
+alias
+alias foo
+alias boo='far' foo boo
+",
+        "$> $> bar
+$> alias foo='echo'
+$> alias foo='echo'
+$> alias foo='echo'
+alias boo='far'
+$> 
+",
+    )?
+    .success()
+    .code(0);
+    Ok(())
+}
+
+#[test]
+fn aliases_do_not_self_recurse() -> Result<(), Box<dyn std::error::Error>> {
+    test_io(
+        "alias echo='echo foo'
+echo bar
+",
+        "$> $> foo bar
+$> 
+",
+    )?
+    .success()
+    .code(0);
+    Ok(())
+}
+
+#[test]
+fn aliases_can_be_nested() -> Result<(), Box<dyn std::error::Error>> {
+    test_io(
+        "alias foo='bar asdf && bar fdsa'
+alias bar=echo
+foo boo
+",
+        "$> $> $> asdf
+fdsa boo
+$> 
+",
+    )?
+    .success()
+    .code(0);
+    Ok(())
+}
+
+#[test]
 fn echo_prints_argument() -> Result<(), Box<dyn std::error::Error>> {
     test_io(
         "echo foo",
