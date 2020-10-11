@@ -78,7 +78,7 @@ impl Runner {
     ) -> bool {
         match node {
             Cmd::Simple(simple) => {
-                if (prev_alias.is_none() || prev_alias.as_ref().unwrap() != &simple.cmd)
+                if (prev_alias.as_ref() != Some(&simple.cmd))
                     && self.shell.borrow().aliases.contains_key(&simple.cmd)
                 {
                     let aliased_cmd = simple.cmd.clone();
