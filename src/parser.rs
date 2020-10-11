@@ -136,9 +136,33 @@ impl<I> Parser<I>
             let mut result = Vec::new();
             let mut io = Io::new();
             let mut map = HashMap::new();
+            let mut env_finished = false;
 
             loop {
+                let mut will_finish_env = true;
                 match self.lexer.peek() {
+                    Some(Assign(_, _)) if !env_finished => {
+                        if let Some(Assign(key, var)) = self.lexer.next() {
+                            map.insert(key, self.expand_word(var));
+                        }
+                        will_finish_env = false;
+                    }
+                    Some(Assign(_, _)) if env_finished => {
+                        // Stick it back together as if it were a plain word
+                        if let Some(Assign(lhs, mut rhs_expansions)) = self.lexer.next() {
+                            if let [Literal(_)] = &rhs_expansions[..] {
+                                result.push(format!(
+                                    "{}={}",
+                                    lhs,
+                                    rhs_expansions.pop().unwrap().get_name()
+                                ))
+                            } else {
+                                let word = self.expand_word(rhs_expansions);
+                                result.push(format!("{}={}", lhs, word))
+                            }
+                        }
+                    }
+
                     Some(Word(_)) => {
                         if let Some(Word(mut expansions)) = self.lexer.next() {
                             if let [Literal(_)] = &expansions[..] {
@@ -149,11 +173,6 @@ impl<I> Parser<I>
                                     result.push(word)
                                 }
                             }
-                        }
-                    }
-                    Some(Assign(_, _)) => {
-                        if let Some(Assign(key, var)) = self.lexer.next() {
-                            map.insert(key, self.expand_word(var));
                         }
                     }
                     Some(Op(Op::Less)) => {
@@ -181,6 +200,7 @@ impl<I> Parser<I>
                     }
                     _ => break,
                 }
+                env_finished = env_finished || will_finish_env;
             }
             if result.is_empty() {
                 if map.is_empty() {
