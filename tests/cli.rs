@@ -31,12 +31,15 @@ foo bar
 alias
 alias foo
 alias boo='far' foo boo
+alias
 ",
         "$> $> bar
 $> alias foo='echo'
 $> alias foo='echo'
 $> alias foo='echo'
 alias boo='far'
+$> alias boo='far'
+alias foo='echo'
 $> 
 ",
     )?
