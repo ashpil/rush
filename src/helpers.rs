@@ -1,6 +1,6 @@
 use nix::unistd::Uid;
 use os_pipe::{dup_stderr, dup_stdin, dup_stdout, PipeReader, PipeWriter};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
@@ -38,7 +38,7 @@ pub struct Shell {
     positional: Vec<String>,
     name: String,
     pub vars: HashMap<String, String>,
-    pub aliases: HashMap<String, String>,
+    pub aliases: BTreeMap<String, String>,
 }
 
 impl Shell {
@@ -63,7 +63,7 @@ impl Shell {
             positional: Vec::new(),
             name,
             vars: HashMap::new(),
-            aliases: HashMap::new(),
+            aliases: BTreeMap::new(),
         }
     }
 

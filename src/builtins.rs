@@ -1,5 +1,5 @@
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::process::exit as exit_program;
 use std::env;
 use std::rc::Rc;
@@ -11,7 +11,7 @@ use crate::helpers::Shell;
 
 pub fn alias(
     // Aliases can be added and then printed in the same command
-    aliases: &mut HashMap<String, String>,
+    aliases: &mut BTreeMap<String, String>,
     args: Vec<String>,
 ) -> bool {
     if args.len() == 0 {
