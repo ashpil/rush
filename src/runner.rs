@@ -82,10 +82,10 @@ impl Runner {
 
     fn visit_or(&self, left: Cmd, right: Cmd, stdio: CmdMeta) -> bool {
         let left = self.visit(left, CmdMeta::inherit());
-        if !left {
-            self.visit(right, stdio)
-        } else {
+        if left {
             left
+        } else {
+            self.visit(right, stdio)
         }
     }
 
@@ -111,7 +111,7 @@ impl Runner {
         match &simple.cmd[..] {
             "exit" => builtins::exit(simple.args),
             "cd" => builtins::cd(simple.args),
-            "set" => builtins::set(simple.args, Rc::clone(&self.shell)),
+            "set" => builtins::set(simple.args, &self.shell),
             command => {
                 let mut cmd = Command::new(command);
                 cmd.args(&simple.args);
@@ -161,3 +161,4 @@ impl Runner {
     }
 }
 // How do I test this module?
+

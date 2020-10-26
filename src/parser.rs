@@ -313,6 +313,8 @@ impl<I> Parser<I>
                     }
                 }
                 Sub(e) => {
+                    // FIXME: `$(ls something)`, commands with params don't work atm
+                    // for some reason
                     let mut parser = Parser::new(vec!(Word(e)).into_iter(), Rc::clone(&self.shell));
 
                     // This setup here allows me to do a surprisingly easy subshell.
@@ -323,7 +325,7 @@ impl<I> Parser<I>
                         println!("\u{001b}[33m{:#?}\u{001b}[0m", command);
 
                         let mut output = Runner::new(Rc::clone(&parser.shell)).execute(command, true).unwrap();
-                        output = output.replace(|c: char| c.is_whitespace(), " ");
+                        output = output.replace(char::is_whitespace, " ");
                         phrase.push_str(output.trim());
                     }
                 }

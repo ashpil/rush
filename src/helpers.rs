@@ -95,7 +95,7 @@ impl Shell {
             if num == 0 {
                 Some(self.name.clone())
             } else {
-                self.get_pos(num).map(|s| String::from(s))
+                self.get_pos(num).map(String::from)
             }
         } else {
             match key {

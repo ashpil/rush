@@ -30,7 +30,8 @@ pub fn cd(args: Vec<String>) -> bool {
 }
 
 // Set very versetaile normally, this is just positional parameters for now
-pub fn set(args: Vec<String>, shell: Rc<RefCell<Shell>>) -> bool {
+pub fn set(args: Vec<String>, shell: &Rc<RefCell<Shell>>) -> bool {
     shell.borrow_mut().set_pos(args);
     true
 }
+
