@@ -3,6 +3,8 @@ Rush is designed to run POSIX scripts, and run them fast. Think of it as a Rust 
 
 I know that the name is overused, but it's too good to pass up.
 
+![pretty demo](https://raw.githubusercontent.com/ashpil/rush/master/demo.png)
+
 ### // TODO: 
 - [X] Simple command execution `ls -ltr`
 - [X] Pipes `exa | grep cargo`
