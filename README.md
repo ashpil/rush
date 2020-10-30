@@ -18,7 +18,7 @@ I know that the name is overused, but it's too good to pass up.
 - [ ] Async execution `&`
 - [ ] Shell builtins
    - [ ] Normal built-ins
-      - [ ] `alias` `unalias`
+      - [x] `alias` `unalias`
       - [X] `cd`
       - [ ] etc
    - [ ] Special built-ins
