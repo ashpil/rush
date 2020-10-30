@@ -97,49 +97,60 @@ impl Runner {
     }
 
     fn expand_alias(&self, cmd: Simple) -> Cmd {
-        let aliasee = &self.shell.borrow().aliases[&cmd.cmd];
-        let lexer = Lexer::new(aliasee, Rc::clone(&self.shell));
+        let substitution = &self.shell.borrow().aliases[&cmd.cmd];
+        let lexer = Lexer::new(substitution, Rc::clone(&self.shell));
         let mut parser = Parser::new(lexer, Rc::clone(&self.shell));
-        let expanded = parser.get().unwrap();
 
-        fn move_args(expanding: Cmd, parent: Simple) -> Cmd {
-            match expanding {
-                Cmd::Simple(mut new_simple) => {
-                    new_simple.args.extend(parent.args);
-                    Cmd::Simple(new_simple)
+        if let Ok(expanded) = parser.get() {
+            fn move_args(expanding: Cmd, parent: Simple) -> Cmd {
+                match expanding {
+                    Cmd::Simple(mut new_simple) => {
+                        new_simple.args.extend(parent.args);
+                        Cmd::Simple(new_simple)
+                    }
+                    Cmd::Pipeline(lhs, rhs) => {
+                        Cmd::Pipeline(lhs, Box::new(move_args(*rhs, parent)))
+                    }
+                    Cmd::And(lhs, rhs) => Cmd::And(lhs, Box::new(move_args(*rhs, parent))),
+                    Cmd::Or(lhs, rhs) => Cmd::Or(lhs, Box::new(move_args(*rhs, parent))),
+                    Cmd::Not(not) => Cmd::Not(Box::new(move_args(*not, parent))),
+                    Cmd::Empty => Cmd::Empty,
                 }
-                Cmd::Pipeline(lhs, rhs) => Cmd::Pipeline(lhs, Box::new(move_args(*rhs, parent))),
-                Cmd::And(lhs, rhs) => Cmd::And(lhs, Box::new(move_args(*rhs, parent))),
-                Cmd::Or(lhs, rhs) => Cmd::Or(lhs, Box::new(move_args(*rhs, parent))),
-                Cmd::Not(not) => Cmd::Not(Box::new(move_args(*not, parent))),
-                Cmd::Empty => Cmd::Empty,
             }
-        }
 
-        fn propagate_env(expanding: Cmd, parent: &Simple) -> Cmd {
-            match expanding {
-                Cmd::Simple(mut new_simple) => {
-                    new_simple.env = parent.env.clone();
-                    Cmd::Simple(new_simple)
+            fn propagate_env(expanding: Cmd, parent: &Simple) -> Cmd {
+                match expanding {
+                    Cmd::Simple(mut new_simple) => {
+                        new_simple.env = parent.env.clone();
+                        Cmd::Simple(new_simple)
+                    }
+                    Cmd::Pipeline(lhs, rhs) => Cmd::Pipeline(
+                        Box::new(propagate_env(*lhs, parent)),
+                        Box::new(propagate_env(*rhs, parent)),
+                    ),
+                    Cmd::And(lhs, rhs) => Cmd::And(
+                        Box::new(propagate_env(*lhs, parent)),
+                        Box::new(propagate_env(*rhs, parent)),
+                    ),
+                    Cmd::Or(lhs, rhs) => Cmd::Or(
+                        Box::new(propagate_env(*lhs, parent)),
+                        Box::new(propagate_env(*rhs, parent)),
+                    ),
+                    Cmd::Not(not) => Cmd::Not(Box::new(propagate_env(*not, parent))),
+                    Cmd::Empty => Cmd::Empty,
                 }
-                Cmd::Pipeline(lhs, rhs) => Cmd::Pipeline(
-                    Box::new(propagate_env(*lhs, parent)),
-                    Box::new(propagate_env(*rhs, parent)),
-                ),
-                Cmd::And(lhs, rhs) => Cmd::And(
-                    Box::new(propagate_env(*lhs, parent)),
-                    Box::new(propagate_env(*rhs, parent)),
-                ),
-                Cmd::Or(lhs, rhs) => Cmd::Or(
-                    Box::new(propagate_env(*lhs, parent)),
-                    Box::new(propagate_env(*rhs, parent)),
-                ),
-                Cmd::Not(not) => Cmd::Not(Box::new(propagate_env(*not, parent))),
-                Cmd::Empty => Cmd::Empty,
             }
-        }
 
-        move_args(propagate_env(expanded, &cmd), cmd)
+            move_args(propagate_env(expanded, &cmd), cmd)
+        } else {
+            let mut cmd = cmd;
+            cmd.cmd = if cmd.args.is_empty() {
+                "".to_string()
+            } else {
+                cmd.args.remove(0)
+            };
+            Cmd::Simple(cmd)
+        }
     }
 
     fn visit_not(&self, cmd: Cmd, stdio: CmdMeta) -> bool {
