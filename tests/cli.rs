@@ -81,6 +81,24 @@ $>
 }
 
 #[test]
+fn alias_can_be_empty() -> Result<(), Box<dyn std::error::Error>> {
+    test_io(
+        "alias foo=
+alias
+foo
+foo echo bar
+",
+        "$> $> alias foo=''
+$> $> bar
+$> 
+",
+    )?
+    .success()
+    .code(0);
+    Ok(())
+}
+
+#[test]
 fn echo_prints_argument() -> Result<(), Box<dyn std::error::Error>> {
     test_io(
         "echo foo",
