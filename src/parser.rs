@@ -341,8 +341,7 @@ impl<I> Parser<I>
                     // Though subshells typically seem to inherit everything I'm keeping in my
                     // `shell` variable at the moment?
                     if let Ok(command) = parser.get() {
-                        #[cfg(debug_assertions)] // Only include when not built with `--release` flag
-                        println!("\u{001b}[33m{:#?}\u{001b}[0m", command);
+                        debug_println!("\u{001b}[33m{:#?}\u{001b}[0m", command);
 
                         let mut output = Runner::new(Rc::clone(&parser.shell)).execute(command, true).unwrap();
                         output = output.replace(char::is_whitespace, " ");
