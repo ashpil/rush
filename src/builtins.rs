@@ -14,7 +14,7 @@ pub fn alias(
     aliases: &mut BTreeMap<String, String>,
     args: Vec<String>,
 ) -> bool {
-    if args.len() == 0 {
+    if args.is_empty() {
         for (lhs, rhs) in aliases {
             println!("alias {}='{}'", lhs, rhs);
         }
@@ -68,24 +68,22 @@ pub fn set(args: Vec<String>, shell: &Rc<RefCell<Shell>>) -> bool {
 }
 
 pub fn unalias(aliases: &mut BTreeMap<String, String>, args: Vec<String>) -> bool {
-    if args.len() == 0 {
+    if args.is_empty() {
         eprintln!("unalias: usage: unalias [-a] name [name ...]");
         false
+    } else if args[0] == "-a" {
+        aliases.clear();
+        true
     } else {
-        if args[0] == "-a" {
-            aliases.clear();
-            true
-        } else {
-            let mut success = true;
-            for arg in args {
-                if aliases.contains_key(&arg) {
-                    aliases.remove(&arg);
-                } else {
-                    eprintln!("rush: unalias: {}: not found", arg);
-                    success = false;
-                }
+        let mut success = true;
+        for arg in args {
+            if aliases.contains_key(&arg) {
+                aliases.remove(&arg);
+            } else {
+                eprintln!("rush: unalias: {}: not found", arg);
+                success = false;
             }
-            success
         }
+        success
     }
 }
