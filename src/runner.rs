@@ -1,5 +1,7 @@
 use crate::builtins;
 use crate::helpers::{Fd, Shell};
+use crate::lexer::Lexer;
+use crate::parser::Parser;
 use crate::parser::{Cmd, Simple};
 use os_pipe::{pipe, PipeReader, PipeWriter};
 use std::process::Command;
@@ -65,13 +67,89 @@ impl Runner {
     // but it works for now. Once I figure out what's non-ideal
     // about it, I'll fix it
     fn visit(&self, node: Cmd, stdio: CmdMeta) -> bool {
+        self.expand_alias_then_visit(node, stdio, None)
+    }
+
+    fn expand_alias_then_visit(
+        &self,
+        node: Cmd,
+        stdio: CmdMeta,
+        prev_alias: Option<String>,
+    ) -> bool {
         match node {
-            Cmd::Simple(simple) => self.visit_simple(simple, stdio),
+            Cmd::Simple(simple) => {
+                if (prev_alias.as_ref() != Some(&simple.cmd))
+                    && self.shell.borrow().aliases.contains_key(&simple.cmd)
+                {
+                    let aliased_cmd = simple.cmd.clone();
+                    let expanded = self.expand_alias(simple);
+                    self.expand_alias_then_visit(expanded, stdio, Some(aliased_cmd))
+                } else {
+                    self.visit_simple(simple, stdio)
+                }
+            }
             Cmd::Pipeline(cmd0, cmd1) => self.visit_pipe(*cmd0, *cmd1, stdio),
             Cmd::And(cmd0, cmd1) => self.visit_and(*cmd0, *cmd1, stdio),
             Cmd::Or(cmd0, cmd1) => self.visit_or(*cmd0, *cmd1, stdio),
             Cmd::Not(cmd) => self.visit_not(*cmd, stdio),
             Cmd::Empty => true,
+        }
+    }
+
+    fn expand_alias(&self, cmd: Simple) -> Cmd {
+        let substitution = &self.shell.borrow().aliases[&cmd.cmd];
+        let lexer = Lexer::new(substitution, Rc::clone(&self.shell));
+        let mut parser = Parser::new(lexer, Rc::clone(&self.shell));
+
+        if let Ok(expanded) = parser.get() {
+            fn move_args(expanding: Cmd, parent: Simple) -> Cmd {
+                match expanding {
+                    Cmd::Simple(mut new_simple) => {
+                        new_simple.args.extend(parent.args);
+                        Cmd::Simple(new_simple)
+                    }
+                    Cmd::Pipeline(lhs, rhs) => {
+                        Cmd::Pipeline(lhs, Box::new(move_args(*rhs, parent)))
+                    }
+                    Cmd::And(lhs, rhs) => Cmd::And(lhs, Box::new(move_args(*rhs, parent))),
+                    Cmd::Or(lhs, rhs) => Cmd::Or(lhs, Box::new(move_args(*rhs, parent))),
+                    Cmd::Not(not) => Cmd::Not(Box::new(move_args(*not, parent))),
+                    Cmd::Empty => Cmd::Empty,
+                }
+            }
+
+            fn propagate_env(expanding: Cmd, parent: &Simple) -> Cmd {
+                match expanding {
+                    Cmd::Simple(mut new_simple) => {
+                        new_simple.env = parent.env.clone();
+                        Cmd::Simple(new_simple)
+                    }
+                    Cmd::Pipeline(lhs, rhs) => Cmd::Pipeline(
+                        Box::new(propagate_env(*lhs, parent)),
+                        Box::new(propagate_env(*rhs, parent)),
+                    ),
+                    Cmd::And(lhs, rhs) => Cmd::And(
+                        Box::new(propagate_env(*lhs, parent)),
+                        Box::new(propagate_env(*rhs, parent)),
+                    ),
+                    Cmd::Or(lhs, rhs) => Cmd::Or(
+                        Box::new(propagate_env(*lhs, parent)),
+                        Box::new(propagate_env(*rhs, parent)),
+                    ),
+                    Cmd::Not(not) => Cmd::Not(Box::new(propagate_env(*not, parent))),
+                    Cmd::Empty => Cmd::Empty,
+                }
+            }
+
+            move_args(propagate_env(expanded, &cmd), cmd)
+        } else {
+            let mut cmd = cmd;
+            cmd.cmd = if cmd.args.is_empty() {
+                "".to_string()
+            } else {
+                cmd.args.remove(0)
+            };
+            Cmd::Simple(cmd)
         }
     }
 
@@ -109,9 +187,12 @@ impl Runner {
     fn visit_simple(&self, mut simple: Simple, stdio: CmdMeta) -> bool {
         self.reconcile_io(&mut simple, stdio);
         match &simple.cmd[..] {
+            "alias" => builtins::alias(&mut self.shell.borrow_mut().aliases, simple.args),
             "exit" => builtins::exit(simple.args),
             "cd" => builtins::cd(simple.args),
             "set" => builtins::set(simple.args, &self.shell),
+            "unalias" => builtins::unalias(&mut self.shell.borrow_mut().aliases, simple.args),
+
             command => {
                 let mut cmd = Command::new(command);
                 cmd.args(&simple.args);
@@ -161,4 +242,3 @@ impl Runner {
     }
 }
 // How do I test this module?
-

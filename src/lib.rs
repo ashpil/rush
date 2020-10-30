@@ -1,3 +1,6 @@
+#[macro_use]
+mod debug;
+
 pub mod lexer;
 pub mod parser;
 pub mod runner;

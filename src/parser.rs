@@ -136,9 +136,33 @@ impl<I> Parser<I>
             let mut result = Vec::new();
             let mut io = Io::new();
             let mut map = HashMap::new();
+            let mut env_finished = false;
 
             loop {
+                let mut will_finish_env = true;
                 match self.lexer.peek() {
+                    Some(Assign(_, _)) if !env_finished => {
+                        if let Some(Assign(key, var)) = self.lexer.next() {
+                            map.insert(key, self.expand_word(var));
+                        }
+                        will_finish_env = false;
+                    }
+                    Some(Assign(_, _)) if env_finished => {
+                        // Stick it back together as if it were a plain word
+                        if let Some(Assign(lhs, mut rhs_expansions)) = self.lexer.next() {
+                            if let [Literal(_)] = &rhs_expansions[..] {
+                                result.push(format!(
+                                    "{}={}",
+                                    lhs,
+                                    rhs_expansions.pop().unwrap().get_name()
+                                ))
+                            } else {
+                                let word = self.expand_word(rhs_expansions);
+                                result.push(format!("{}={}", lhs, word))
+                            }
+                        }
+                    }
+
                     Some(Word(_)) => {
                         if let Some(Word(mut expansions)) = self.lexer.next() {
                             if let [Literal(_)] = &expansions[..] {
@@ -149,11 +173,6 @@ impl<I> Parser<I>
                                     result.push(word)
                                 }
                             }
-                        }
-                    }
-                    Some(Assign(_, _)) => {
-                        if let Some(Assign(key, var)) = self.lexer.next() {
-                            map.insert(key, self.expand_word(var));
                         }
                     }
                     Some(Op(Op::Less)) => {
@@ -181,6 +200,7 @@ impl<I> Parser<I>
                     }
                     _ => break,
                 }
+                env_finished = env_finished || will_finish_env;
             }
             if result.is_empty() {
                 if map.is_empty() {
@@ -321,8 +341,7 @@ impl<I> Parser<I>
                     // Though subshells typically seem to inherit everything I'm keeping in my
                     // `shell` variable at the moment?
                     if let Ok(command) = parser.get() {
-                        #[cfg(debug_assertions)] // Only include when not built with `--release` flag
-                        println!("\u{001b}[33m{:#?}\u{001b}[0m", command);
+                        debug_println!("\u{001b}[33m{:#?}\u{001b}[0m", command);
 
                         let mut output = Runner::new(Rc::clone(&parser.shell)).execute(command, true).unwrap();
                         output = output.replace(char::is_whitespace, " ");
@@ -394,6 +413,7 @@ mod parser_tests {
     use crate::helpers::Shell;
     use crate::lexer::Lexer;
     use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::rc::Rc;
 
     #[test]
@@ -453,6 +473,29 @@ mod parser_tests {
             vec![String::from("-ltr")],
             Io::new(),
         ));
+        assert_eq!(expected, parser.get().unwrap())
+    }
+
+    #[test]
+    fn test_cmd_with_equals_in_args() {
+        let shell = Rc::new(RefCell::new(Shell::new(None)));
+        let lexer = Lexer::new("LANG=en alias foo='bar' foo boo=\"far\"", Rc::clone(&shell));
+        let mut parser = Parser::new(lexer, Rc::clone(&shell));
+        let expected = Cmd::Simple({
+            let mut s = Simple::new(
+                String::from("alias"),
+                vec![
+                    "foo=bar".to_string(),
+                    "foo".to_string(),
+                    "boo=far".to_string(),
+                ],
+                Io::new(),
+            );
+            let mut env = HashMap::new();
+            env.insert("LANG".to_string(), "en".to_string());
+            s.add_env(env);
+            s
+        });
         assert_eq!(expected, parser.get().unwrap())
     }
 }

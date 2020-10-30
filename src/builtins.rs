@@ -1,3 +1,5 @@
+use regex::Regex;
+use std::collections::BTreeMap;
 use std::process::exit as exit_program;
 use std::env;
 use std::rc::Rc;
@@ -6,6 +8,36 @@ use crate::helpers::Shell;
 
 // Unless specified otherwise, if provided multiple arguments while only
 // accepting one, these use the first argument. Dash does this as well.  
+
+pub fn alias(
+    // Aliases can be added and then printed in the same command
+    aliases: &mut BTreeMap<String, String>,
+    args: Vec<String>,
+) -> bool {
+    if args.is_empty() {
+        for (lhs, rhs) in aliases {
+            println!("alias {}='{}'", lhs, rhs);
+        }
+        true
+    } else {
+        let mut success = true;
+        let assignment_re = Regex::new(r"^(\w+)=(.*)").unwrap();
+        for arg in args {
+            if assignment_re.is_match(&arg) {
+                let caps = assignment_re.captures(&arg).unwrap();
+                let lhs = &caps[1];
+                let rhs = &caps[2];
+                aliases.insert(lhs.to_string(), rhs.to_string());
+            } else if aliases.contains_key(&arg) {
+                println!("alias {}='{}'", arg, aliases[&arg]);
+            } else {
+                eprintln!("rush: alias: {}: not found", arg);
+                success = false;
+            }
+        }
+        success
+    }
+}
 
 pub fn exit(args: Vec<String>) -> bool {
     match args.get(0).map_or(Ok(0), |x| x.parse::<i32>()) {
@@ -35,3 +67,23 @@ pub fn set(args: Vec<String>, shell: &Rc<RefCell<Shell>>) -> bool {
     true
 }
 
+pub fn unalias(aliases: &mut BTreeMap<String, String>, args: Vec<String>) -> bool {
+    if args.is_empty() {
+        eprintln!("unalias: usage: unalias [-a] name [name ...]");
+        false
+    } else if args[0] == "-a" {
+        aliases.clear();
+        true
+    } else {
+        let mut success = true;
+        for arg in args {
+            if aliases.contains_key(&arg) {
+                aliases.remove(&arg);
+            } else {
+                eprintln!("rush: unalias: {}: not found", arg);
+                success = false;
+            }
+        }
+        success
+    }
+}

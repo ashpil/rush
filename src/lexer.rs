@@ -360,7 +360,7 @@ impl Lexer {
             }
             Some(_) => match self.read_until(false, false, false, Box::new(is_token_split)) {
                 Ok(w) => {
-                    println!("The words I got: {:?}", w);
+                    debug_println!("The words I got: {:?}", w);
                     match &w[..] {
                         [Literal(s), ..]
                             if s.ends_with('=')

@@ -1,0 +1,178 @@
+use assert_cmd::assert::IntoOutputPredicate;
+use assert_cmd::cmd::Command;
+use escargot::CargoBuild;
+use predicates_core::Predicate;
+
+fn test_io<I, O, P>(
+    input: I,
+    output: O,
+) -> Result<assert_cmd::assert::Assert, Box<dyn std::error::Error>>
+where
+    I: Into<Vec<u8>>,
+    O: IntoOutputPredicate<P>,
+    P: Predicate<[u8]>,
+{
+    let mut cmd = Command::from_std(
+        CargoBuild::new()
+            .bin(env!("CARGO_PKG_NAME"))
+            .release()
+            .run()?
+            .command(),
+    );
+    let assert = cmd.write_stdin(input).assert();
+    Ok(assert.stdout(output))
+}
+
+#[test]
+fn alias_defines_and_prints_aliases() -> Result<(), Box<dyn std::error::Error>> {
+    test_io(
+        "alias foo=echo
+foo bar
+alias
+alias foo
+alias boo='far' foo boo
+alias
+",
+        "$> $> bar
+$> alias foo='echo'
+$> alias foo='echo'
+$> alias foo='echo'
+alias boo='far'
+$> alias boo='far'
+alias foo='echo'
+$> 
+",
+    )?
+    .success()
+    .code(0);
+    Ok(())
+}
+
+#[test]
+fn aliases_do_not_self_recurse() -> Result<(), Box<dyn std::error::Error>> {
+    test_io(
+        "alias echo='echo foo'
+echo bar
+",
+        "$> $> foo bar
+$> 
+",
+    )?
+    .success()
+    .code(0);
+    Ok(())
+}
+
+#[test]
+fn aliases_can_be_nested() -> Result<(), Box<dyn std::error::Error>> {
+    test_io(
+        "alias foo='bar asdf && bar fdsa'
+alias bar=echo
+foo boo
+",
+        "$> $> $> asdf
+fdsa boo
+$> 
+",
+    )?
+    .success()
+    .code(0);
+    Ok(())
+}
+
+#[test]
+fn alias_can_be_empty() -> Result<(), Box<dyn std::error::Error>> {
+    test_io(
+        "alias foo=
+alias
+foo
+foo echo bar
+",
+        "$> $> alias foo=''
+$> $> bar
+$> 
+",
+    )?
+    .success()
+    .code(0);
+    Ok(())
+}
+
+#[test]
+fn echo_prints_argument() -> Result<(), Box<dyn std::error::Error>> {
+    test_io(
+        "echo foo",
+        "$> foo
+$> 
+",
+    )?
+    .success()
+    .code(0);
+    Ok(())
+}
+
+#[test]
+fn empty_input_prints_newline() -> Result<(), Box<dyn std::error::Error>> {
+    test_io(
+        "", "$> 
+",
+    )?
+    .success()
+    .code(0);
+    Ok(())
+}
+
+#[test]
+fn exit_prints_nothing() -> Result<(), Box<dyn std::error::Error>> {
+    test_io("exit", "$> ")?.success().code(0);
+    Ok(())
+}
+
+#[test]
+fn unalias_removes_alias() -> Result<(), Box<dyn std::error::Error>> {
+    test_io(
+        "alias foo='echo' bar='oche'
+alias
+unalias foo
+alias
+unalias bar
+foo foo
+",
+        "$> $> alias bar='oche'
+alias foo='echo'
+$> $> alias bar='oche'
+$> $> $> 
+",
+    )?
+    .stderr(
+        "rush: foo: No such file or directory (os error 2)
+",
+    )
+    .success()
+    .code(0);
+    Ok(())
+}
+
+#[test]
+fn unalias_dash_a_removes_all_aliases() -> Result<(), Box<dyn std::error::Error>> {
+    test_io(
+        "alias foo='echo' bar='oche'
+alias
+unalias -a
+alias
+alias foo='echo' bar='oche'
+alias
+unalias -a asdf
+alias
+",
+        "$> $> alias bar='oche'
+alias foo='echo'
+$> $> $> $> alias bar='oche'
+alias foo='echo'
+$> $> $> 
+",
+    )?
+    .success()
+    .code(0);
+    Ok(())
+}

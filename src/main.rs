@@ -1,3 +1,6 @@
+#[macro_use]
+mod debug;
+
 use rush::lexer::Lexer;
 use rush::parser::Parser;
 use rush::runner::Runner;
@@ -20,8 +23,7 @@ fn main() {
             let mut parser = Parser::new(lexer, Rc::clone(&shell));
             match parser.get() {
                 Ok(command) => {
-                    #[cfg(debug_assertions)] // Only include when not built with `--release` flag
-                    println!("\u{001b}[34m{:#?}\u{001b}[0m", command);
+                    debug_println!("\u{001b}[34m{:#?}\u{001b}[0m", command);
 
                     runner.execute(command, false);
                 }
